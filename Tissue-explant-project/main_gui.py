@@ -160,12 +160,17 @@ class MyWindow(ctk.CTk):
         super().__init__()
         # eventuellement ajouter des class pour les boutons, pour mieux gerer les scenarios, dui gnre les well plate button
         self.create_variables()
-        
-        self.title("X-Plant control panel")
+        if debug:
+            self.title("X-Plant control panel - Debug mode")
+        else:
+            self.title("X-Plant control panel")
         self.geometry("1200x750")
         self.protocol("WM_DELETE_WINDOW", self.close_window)
 
-        self.title_ = ctk.CTkLabel(self, text="X-plant", font=("Arial Bold", 18))
+        if debug:
+            self.title_ = ctk.CTkLabel(self, text="X-plant - Debug mode", font=("Arial Bold", 18))
+        else:
+            self.title_ = ctk.CTkLabel(self, text="X-plant", font=("Arial Bold", 18))
         self.title_.grid(pady=10)
 
         self.gui_mode_frame = ctk.CTkFrame(self)
@@ -430,17 +435,20 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.prep_gel_button = ctk.CTkButton(self.steps_frame, text="Prepare gel", command=self.debug_function)
         self.prep_gel_button.grid(row=2, column=0, padx=10, pady=10)
 
+        self.prep_gel_button = ctk.CTkButton(self.steps_frame, text="Apply gel", command=self.debug_function)
+        self.prep_gel_button.grid(row=3, column=0, padx=10, pady=10)
+
         self.detect_button = ctk.CTkButton(self.steps_frame, text="Detect", command=self.detect)
-        self.detect_button.grid(row=3, column=0, padx=10, pady=10)
+        self.detect_button.grid(row=4, column=0, padx=10, pady=10)
         
         self.pick_button = ctk.CTkButton(self.steps_frame, text="Pick", command=self.pick)
-        self.pick_button.grid(row=4, column=0, padx=10, pady=10)
+        self.pick_button.grid(row=5, column=0, padx=10, pady=10)
 
         self.pnp_button = ctk.CTkButton(self.steps_frame, text="Place", command=self.place)
-        self.pnp_button.grid(row=5, column=0, padx=10, pady=10)
+        self.pnp_button.grid(row=6, column=0, padx=10, pady=10)
 
         self.pnp_button = ctk.CTkButton(self.steps_frame, text="Pick and place", command=self.debug_function)
-        self.pnp_button.grid(row=6, column=0, padx=10, pady=10)
+        self.pnp_button.grid(row=7, column=0, padx=10, pady=10)
     
     #### Functions related to the camera tab ####
     def set_tab_cameras(self):
@@ -1196,39 +1204,48 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
     def calibration_process(self, key, offset):
         
+        # print("Key pressed is {}".format(key))
+        # print(key)
+
         incr = 0.1
                 
-        if key == 2424832: #Right
-            offset[0] -= incr
-            self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
-                                            y=self.settings["Offset"]["Calibration point"][1], 
-                                            z=self.settings["Offset"]["Calibration point"][2], offset=offset)
-            
-        elif key == 2555904: #Left
+        # if key == 2424832: #Right
+        if key == "Right": #Right
             offset[0] += incr
             self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
                                             y=self.settings["Offset"]["Calibration point"][1], 
                                             z=self.settings["Offset"]["Calibration point"][2], offset=offset)
+            
+        # elif key == 2555904: #Left
+        elif key == "Left": #Left
+            offset[0] -= incr
+            self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
+                                            y=self.settings["Offset"]["Calibration point"][1], 
+                                            z=self.settings["Offset"]["Calibration point"][2], offset=offset)
 
-        if key == 2490368: #Up
+        # if key == 2490368: #Up
+        if key == "Up": #Forward
             offset[1] += incr
             self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
                                             y=self.settings["Offset"]["Calibration point"][1], 
                                             z=self.settings["Offset"]["Calibration point"][2], offset=offset)
 
-        if key == 2621440:#Down
+        #elif key == 2621440:#Down
+        elif key == "Down": #Backward
             offset[1] -= incr
             self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
                                             y=self.settings["Offset"]["Calibration point"][1], 
                                             z=self.settings["Offset"]["Calibration point"][2], offset=offset)
 
-        elif key == ord('u'):
+        # elif key == ord('u'):
+        elif key == "u" or key == "U": #Up
             offset[2] += incr
             self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
                                             y=self.settings["Offset"]["Calibration point"][1], 
                                             z=self.settings["Offset"]["Calibration point"][2], offset=offset)
 
-        elif key == ord('d'):
+        #elif key == ord('d'):
+        elif key == "d" or key == "D": #Down
             offset[2] -= incr
             self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
                                             y=self.settings["Offset"]["Calibration point"][1], 
@@ -1317,12 +1334,32 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         if not debug:
             self.anycubic.set_position(x=0)
 
+        self.tip_calibration() 
+
+    def tip_calibration(self): # Common part to full and offset calibrations
+        
+        # tips and micro camera calibration
         self.dynamixel.select_tip(tip_number=1, ID=3)  
         
         # Offset first tip calibration
-        self.anycubic.move_axis_relative(z=5, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x=5, y=-15, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip one"])
+        #self.anycubic.move_axis_relative(z=5, offset=self.settings["Offset"]["Tip one"])
+        #self.anycubic.move_axis_relative(x=5, y=-15, offset=self.settings["Offset"]["Tip one"])
+        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], z=10, offset=self.settings["Offset"]["Tip one"])
+        
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            if debug:
+                imshow = cam_gear.get_cam_frame(self.stream2)
+            else:
+                frame = cam_gear.get_cam_frame(self.stream1)
+                self.frame = self.cam.undistort(frame)
+                imshow = self.frame.copy()
+
+            self.show_frame(imshow)  # Show the frame in the main window
+
+            self.update_idletasks()
+            self.update()
+
         self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip one"])
 
         #self.show_camera_control()
@@ -1426,18 +1463,37 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.tip_number = 1
         self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
             
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Camera"])
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Camera"])
+        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Camera"])
+        # self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Camera"])
+
+        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
+        #self.move_xyz(z=self.safe_height)
+        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], z=self.safe_height)
+        #self.calibration_process(self.key_pressed, self.settings["Offset"]["Camera"])
+        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
+                                            y=self.settings["Offset"]["Calibration point"][1], 
+                                            z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Camera"])
         
+
         while True:
             if debug:
                 imshow = cam_gear.get_cam_frame(self.stream2)
             else:
                 frame = cam_gear.get_cam_frame(self.stream1)
                 self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
+                #self.invert = cv.invert(self.frame)
+
+                # Rotate the image 90 degrees to the left
+                imshow = cv2.rotate(self.frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
                 imshow = self.frame.copy()
             
+            # Draw a cross in the center of the image to calibate the camera on the hole
+            markerSize = 15
+            thickness = 1
+            center = (imshow.shape[1] // 2, imshow.shape[0] // 2)
+            imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
+
             self.show_frame(imshow)  # Show the frame in the main window
             
 
@@ -1453,10 +1509,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             self.update()
             
-            markerSize = 15
-            thickness = 1
-            center = (imshow.shape[1] // 2, imshow.shape[0] // 2)
-            imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
 
         self.message_box.delete('1.0', tk.END)
         self.message_box.insert(tk.END, "Camera Calibrated")
@@ -1467,6 +1519,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
      
         if not debug:
             self.tip_pos_px = self.cam.platform_space_to_cam(self.settings["Offset"]["Tip one"], self.settings["Offset"]["Camera"]) + np.array([5, -5])  # small correction
+        else:
+            self.tip_pos_px = np.array([0, 0])
 
         #cv2.destroyAllWindows()
         self.camera_feed_label.destroy()
@@ -1487,241 +1541,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.camera_feed_label.config(image=photo)
         self.camera_feed_label.image = photo
 
-
-
-    def fullcalibration_cv2(self):    
-        
-        self.move_home()
-        #self.move_xyz(go_safe_height=True) 
-
-
-        self.x_firmware_limit_overwrite = -9
-        # Macro camera calibration
-
-        #self.anycubic.move_axis_relative(z=20, offset=self.settings["Offset"]["Tip one"])
-        #self.anycubic.move_axis_relative(x=self.picture_pos, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-        #self.move_xyz(x=self.picture_pos)
-
-        # This is to overcome the firmware limit. The z endstop is programmed to be at -9, and the firmware limit is 0.
-        # We move the position to the firmware limit (0), then tell the printer thez are at -endstop position(9), so we 
-        # can move another 9 mm, thus overcoming the firmware limit.
-        
-        if not debug:
-            self.anycubic.set_position(x=-self.x_firmware_limit_overwrite)  
-        self.anycubic.move_axis_relative(x=self.picture_pos, offset=self.settings["Offset"]["Tip one"])
-            # Updated Versions (?)
-            # set position ?
-            #self.move_xyz(x=self.picture_pos)
-
-            # All other calibration stuff: ***********************
-        self.dynamixel.select_tip(tip_number=2, ID=3)
-
-        self.anycubic.move_axis_relative(x = self.settings["Offset"]["Fixed Camera"][0], y = self.settings["Offset"]["Fixed Camera"][1], z = self.settings["Offset"]["Fixed Camera"][2], offset=[0,0,0])
-                        
-        self.camera_displayed_text.set("Camera 2")
-        self.displayed_cameras = 2
-
-        while True:
-            #self.macro_frame = cam_gear.get_cam_frame(self.stream2)         
-
-            # Inputs
-            key = cv2.waitKeyEx(5)  
-            
-            self.settings["Offset"]["Fixed Camera"] = self.calibration_process(key, self.settings["Offset"]["Fixed Camera"])
-
-
-            if key == 13: #enter
-                break
-            
-            #cv2.imshow('Macro camera', self.macro_frame) 
-        
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)
-
-        #cv2.destroyAllWindows()  
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x = -self.x_firmware_limit_overwrite)
-        if not debug:
-            self.anycubic.set_position(x = 0)
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-        #self.move_xyz(x = -self.x_firmware_limit_overwrite)
-        # Set position?
-
-        self.dynamixel.select_tip(tip_number=1, ID=3)  
-            
-        # Offset first tip calibration
-        self.anycubic.move_axis_relative(z=5, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x=5, y=-15, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=5)
-        #self.move_xyz(x=5, y=-15)
-        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
-        #self.move_xyz(z=self.settings["Offset"]["Calibration point"][2])
-
-        self.show_camera_control()
-
-        while True:
-            if debug == True:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1) 
-                self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
-                imshow = self.frame.copy()  ## why is invert not used ??
-                
-            #self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
-                
-            # Inputs
-            key = cv2.waitKeyEx(5)
-                        
-            self.settings["Offset"]["Tip one"] = self.calibration_process(key, self.settings["Offset"]["Tip one"])
-            
-            if key == 13: #enter
-                print("Offset tip one: ", self.settings["Offset"]["Tip one"])
-                break
-            cv2.imshow('Camera', imshow) 
-            
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)
-
-        # Change tip
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-
-        self.anycubic.finish_request()
-        while not self.anycubic.get_finish_flag():
-            if debug == True:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                imshow = self.frame.copy()
-
-            cv2.imshow('Camera', imshow) 
-            
-        self.tip_number = 2
-        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)  
-                
-        # Offset second tip calibration
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip two"])
-        self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip two"])
-        # Updated Versions (?)
-        #self.pipette_offset_selector.set(self.pipette_name[2])
-        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
-        #self.move_xyz(z=self.settings["Offset"]["Calibration point"][2])
-
-        while True:
-            if debug:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
-                imshow = self.frame.copy()
-            
-            #self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
-                
-            # Inputs
-            key = cv2.waitKeyEx(5)
-            
-            self.settings["Offset"]["Tip two"] = self.calibration_process(key, self.settings["Offset"]["Tip two"])
-            
-            if key == 13: #enter
-                print("Offset tip two: ", self.settings["Offset"]["Tip two"])
-                break
-                
-            cv2.imshow('Camera', imshow) 
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)   
-
-        # Change tip
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-
-        self.anycubic.finish_request()
-        while not self.anycubic.get_finish_flag():
-            if debug:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                imshow = self.frame.copy()
-
-            cv2.imshow('Camera', imshow) 
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset) 
-
-        self.tip_number = 1
-        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
-            
-        # Offset camera calibration
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Camera"])
-        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
-
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Camera"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-
-        while True:
-        #### Maybe try to change the control for calibrating the camera, to make it more intuitive
-        #### We can also try to flip the camera if it is better
-            if debug == True:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
-                imshow = self.frame.copy()
-            
-            # self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
-                
-            # Inputs
-            key = cv2.waitKeyEx(5)
-            
-            offset = self.settings["Offset"]["Camera"]
-            offset[2] += self.safe_height
-            offset = self.calibration_process(key, offset)
-            self.settings["Offset"]["Camera"][2] = 0
-            
-            if key == 13: #enter
-                print("Offset cam: ", self.settings["Offset"]["Camera"])
-                break
-            
-            markerSize = 15
-            thickness = 1
-            center = (imshow.shape[1]//2, imshow.shape[0]//2)
-            imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
-            
-            cv2.imshow('Camera', imshow) 
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)
-
-        # *****************************************************
-
-        #self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        #self.anycubic.move_axis_relative(x=220, y=220, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        self.move_xyz(x=220, y=220, go_safe_height=True)    
-
-        if debug == False:
-            self.tip_pos_px = self.cam.platform_space_to_cam(self.settings["Offset"]["Tip one"], self.settings["Offset"]["Camera"]) + np.array([5, -5]) # small correction   
-                    
-        cv2.destroyAllWindows() 
-
-        #print("This is the end of the testing function guys!!")
 
     def offsetcalibration(self):
         #print("This is the start of the testing function guys!!")
@@ -1812,23 +1631,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #self.move_xyz(x = -self.x_firmware_limit_overwrite)
         # Set position?
 
-        self.dynamixel.select_tip(tip_number=1, ID=3)  
-            
-        # Offset first tip calibration
-        self.anycubic.move_axis_relative(z=5, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x=5, y=-15, offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip one"])
-        self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=5)
-        #self.move_xyz(x=5, y=-15)
-        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
-        #self.move_xyz(z=self.settings["Offset"]["Calibration point"][2])
-
-        #self.show_camera_control()
         # Bind key events
         self.bind('<Key>', self.on_key_press)
-
 
         self.message_box.delete('1.0', tk.END)
         self.message_box.insert(tk.END, "Calibrate with arrows, U and D, and press Enter to continue")
@@ -1837,240 +1641,303 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         self.key_pressed = None
 
-        while True:
-            if debug == True:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1) 
-                self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
-                imshow = self.frame.copy()  ## why is invert not used ??
+
+        self.tip_calibration() 
+
+        # # tips and micro camera calibration
+        # self.dynamixel.select_tip(tip_number=1, ID=3)  
             
-            #self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
-                
-            # # Inputs
-            # key = cv2.waitKeyEx(5)
-                        
-            # self.settings["Offset"]["Tip one"] = self.calibration_process(key, self.settings["Offset"]["Tip one"])
-            
-            # if key == 13: #enter
-            #     print("Offset tip one: ", self.settings["Offset"]["Tip one"])
-            #     break
-            # cv2.imshow('Camera', imshow) 
+        # # Offset first tip calibration
+        # self.anycubic.move_axis_relative(z=5, offset=self.settings["Offset"]["Tip one"])
+        # self.anycubic.move_axis_relative(x=5, y=-15, offset=self.settings["Offset"]["Tip one"])
+        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip one"])
+        # self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip one"])
+        # # Updated Versions (?)
+        # #self.move_xyz(z=5)
+        # #self.move_xyz(x=5, y=-15)
+        # #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
+        # #self.move_xyz(z=self.settings["Offset"]["Calibration point"][2])
 
-            self.show_frame(imshow)  # Show the frame in the main window
-            
-            if self.key_pressed == 'Return':  # Enter key
-                print("Offset tip one: ", self.settings["Offset"]["Tip one"])
-                self.key_pressed = None
-                break
-
-            elif self.key_pressed is not None:
-                self.settings["Offset"]["Tip one"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Tip one"])
-                self.key_pressed = None
-
-            
-
-            self.update_idletasks()
-            self.update()
-            
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)
-
-        self.message_box.delete('1.0', tk.END)
-        self.message_box.insert(tk.END, "Tip 1 Calibrated")
-        self.message_box.see(tk.END)
-        self.update_idletasks() 
-
-        # Change tip
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-
-        self.anycubic.finish_request()
-        while not self.anycubic.get_finish_flag():
-            if debug == True:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                imshow = self.frame.copy()
-
-            #cv2.imshow('Camera', imshow) 
-            self.show_frame(imshow)  # Show the frame in the main window
-            self.update_idletasks()
-            self.update()
-
-
-        self.tip_number = 2
-        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)  
-                
-        # Offset second tip calibration
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip two"])
-        self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip two"])
-        # Updated Versions (?)
-        #self.pipette_offset_selector.set(self.pipette_name[2])
-        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
-        #self.move_xyz(z=self.settings["Offset"]["Calibration point"][2])
-
-        while True:
-            if debug:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
-                imshow = self.frame.copy()
-            
-            #self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
-                
-            # Inputs
-            # key = cv2.waitKeyEx(5)
-            
-            # self.settings["Offset"]["Tip two"] = self.calibration_process(key, self.settings["Offset"]["Tip two"])
-            
-            # if key == 13: #enter
-            #     print("Offset tip two: ", self.settings["Offset"]["Tip two"])
-            #     break
-                
-            # cv2.imshow('Camera', imshow)
-            self.show_frame(imshow)  # Show the frame in the main window
-            
-            if self.key_pressed == 'Return':  # Enter key
-                print("Offset tip two: ", self.settings["Offset"]["Tip two"])
-                self.key_pressed = None
-                break
-
-            elif self.key_pressed is not None:
-                self.settings["Offset"]["Tip two"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Tip two"])
-                self.key_pressed = None
-
-            
-
-            self.update_idletasks()
-            self.update() 
-
-        self.message_box.delete('1.0', tk.END)
-        self.message_box.insert(tk.END, "Tip 2 Calibrated")
-        self.message_box.see(tk.END)
-        self.update_idletasks() 
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)   
-
-        # Change tip
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-
-        self.anycubic.finish_request()
-        while not self.anycubic.get_finish_flag():
-            if debug:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                imshow = self.frame.copy()
-
-            #cv2.imshow('Camera', imshow) 
-            self.show_frame(imshow)  # Show the frame in the main window
-
-            self.update_idletasks()
-            self.update()
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset) 
-
-        self.tip_number = 1
-        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
-            
-        # Offset camera calibration
-        self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Camera"])
-        #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
-
-        self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Camera"])
-        # Updated Versions (?)
-        #self.move_xyz(z=self.safe_height)
-
-        while True:
-        #### Maybe try to change the control for calibrating the camera, to make it more intuitive
-        #### We can also try to flip the camera if it is better
-            if debug:
-                imshow = cam_gear.get_cam_frame(self.stream2) 
-            else:
-                frame = cam_gear.get_cam_frame(self.stream1)  
-                self.frame = self.cam.undistort(frame)
-                self.invert = cv.invert(self.frame)
-                imshow = self.frame.copy()
-            
-            # self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
-                
-            # Inputs
-            #key = cv2.waitKeyEx(5)
-            self.show_frame(imshow)  # Show the frame in the main window
-
-            # offset = self.settings["Offset"]["Camera"]
-            # offset[2] += self.safe_height
-            # offset = self.calibration_process(key, offset)
-            # self.settings["Offset"]["Camera"][2] = 0
-            
-            # if key == 13: #enter
-            #     print("Offset cam: ", self.settings["Offset"]["Camera"])
-            #     break
-            
-            # markerSize = 15
-            # thickness = 1
-            # center = (imshow.shape[1]//2, imshow.shape[0]//2)
-            # imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
-            
-            # cv2.imshow('Camera', imshow) 
-            if self.key_pressed == 'Return':  # Enter key
-                print("Offset cam: ", self.settings["Offset"]["Camera"])
-                self.key_pressed = None
-                break
-            
-            elif self.key_pressed is not None:
-                self.settings["Offset"]["Camera"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Camera"])
-                self.key_pressed = None
-
-            self.update_idletasks()
-            self.update()
-            
-            markerSize = 15
-            thickness = 1
-            center = (imshow.shape[1] // 2, imshow.shape[0] // 2)
-            imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
-
-        self.message_box.delete('1.0', tk.END)
-        self.message_box.insert(tk.END, "Camera Calibrated")
-        self.message_box.see(tk.END)
-        self.update_idletasks() 
-
-        #print("All offsets right now: ", self.settings["Offset"])
-        #print("Main (?) offsets right now: ", self.offset)
-
-        # *****************************************************
-
-        #self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
-        #self.anycubic.move_axis_relative(x=220, y=220, offset=self.settings["Offset"]["Tip one"])
-        # Updated Versions (?)
-        self.move_xyz(x=220, y=220, go_safe_height=True)    
-
-        if debug == False:
-            self.tip_pos_px = self.cam.platform_space_to_cam(self.settings["Offset"]["Tip one"], self.settings["Offset"]["Camera"]) + np.array([5, -5]) # small correction   
-            
-        # cv2.destroyAllWindows()
-        self.camera_feed_label.destroy()
-        self.camera_feed_frame.destroy()
+        # #self.show_camera_control()
         
-        self.key_pressed = None
-        self.message_box.delete('1.0', tk.END)
-        self.update_idletasks()  # Force GUI update 
 
-        #print("This is the end of the testing function guys!!")
+        # while True:
+        #     if debug == True:
+        #         imshow = cam_gear.get_cam_frame(self.stream2) 
+        #     else:
+        #         frame = cam_gear.get_cam_frame(self.stream1) 
+        #         self.frame = self.cam.undistort(frame)
+        #         self.invert = cv.invert(self.frame)
+        #         imshow = self.frame.copy()  ## why is invert not used ??
+            
+        #     #self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
+                
+        #     # # Inputs
+        #     # key = cv2.waitKeyEx(5)
+                        
+        #     # self.settings["Offset"]["Tip one"] = self.calibration_process(key, self.settings["Offset"]["Tip one"])
+            
+        #     # if key == 13: #enter
+        #     #     print("Offset tip one: ", self.settings["Offset"]["Tip one"])
+        #     #     break
+        #     # cv2.imshow('Camera', imshow) 
+
+        #     self.show_frame(imshow)  # Show the frame in the main window
+            
+        #     if self.key_pressed == 'Return':  # Enter key
+        #         print("Offset tip one: ", self.settings["Offset"]["Tip one"])
+        #         self.key_pressed = None
+        #         break
+
+        #     elif self.key_pressed is not None:
+        #         self.settings["Offset"]["Tip one"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Tip one"])
+        #         self.key_pressed = None
+
+            
+
+        #     self.update_idletasks()
+        #     self.update()
+            
+        # #print("All offsets right now: ", self.settings["Offset"])
+        # #print("Main (?) offsets right now: ", self.offset)
+
+        # self.message_box.delete('1.0', tk.END)
+        # self.message_box.insert(tk.END, "Tip 1 Calibrated")
+        # self.message_box.see(tk.END)
+        # self.update_idletasks() 
+
+        # # Change tip
+        # self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
+        # # Updated Versions (?)
+        # #self.move_xyz(z=self.safe_height)
+
+        # self.anycubic.finish_request()
+        # while not self.anycubic.get_finish_flag():
+        #     if debug == True:
+        #         imshow = cam_gear.get_cam_frame(self.stream2) 
+        #     else:
+        #         frame = cam_gear.get_cam_frame(self.stream1)  
+        #         self.frame = self.cam.undistort(frame)
+        #         imshow = self.frame.copy()
+
+        #     #cv2.imshow('Camera', imshow) 
+        #     self.show_frame(imshow)  # Show the frame in the main window
+        #     self.update_idletasks()
+        #     self.update()
+
+
+        # self.tip_number = 2
+        # self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
+
+        # #print("All offsets right now: ", self.settings["Offset"])
+        # #print("Main (?) offsets right now: ", self.offset)  
+                
+        # # Offset second tip calibration
+        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Tip two"])
+        # self.anycubic.move_axis_relative(z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Tip two"])
+        # # Updated Versions (?)
+        # #self.pipette_offset_selector.set(self.pipette_name[2])
+        # #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
+        # #self.move_xyz(z=self.settings["Offset"]["Calibration point"][2])
+
+        # while True:
+        #     if debug:
+        #         imshow = cam_gear.get_cam_frame(self.stream2) 
+        #     else:
+        #         frame = cam_gear.get_cam_frame(self.stream1)  
+        #         self.frame = self.cam.undistort(frame)
+        #         self.invert = cv.invert(self.frame)
+        #         imshow = self.frame.copy()
+            
+        #     #self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
+                
+        #     # Inputs
+        #     # key = cv2.waitKeyEx(5)
+            
+        #     # self.settings["Offset"]["Tip two"] = self.calibration_process(key, self.settings["Offset"]["Tip two"])
+            
+        #     # if key == 13: #enter
+        #     #     print("Offset tip two: ", self.settings["Offset"]["Tip two"])
+        #     #     break
+                
+        #     # cv2.imshow('Camera', imshow)
+        #     self.show_frame(imshow)  # Show the frame in the main window
+            
+        #     if self.key_pressed == 'Return':  # Enter key
+        #         print("Offset tip two: ", self.settings["Offset"]["Tip two"])
+        #         self.key_pressed = None
+        #         break
+
+        #     elif self.key_pressed is not None:
+        #         self.settings["Offset"]["Tip two"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Tip two"])
+        #         self.key_pressed = None
+
+            
+
+        #     self.update_idletasks()
+        #     self.update() 
+
+        # self.message_box.delete('1.0', tk.END)
+        # self.message_box.insert(tk.END, "Tip 2 Calibrated")
+        # self.message_box.see(tk.END)
+        # self.update_idletasks() 
+
+        # #print("All offsets right now: ", self.settings["Offset"])
+        # #print("Main (?) offsets right now: ", self.offset)   
+
+        # # Change tip
+        # self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
+        # # Updated Versions (?)
+        # #self.move_xyz(z=self.safe_height)
+
+        # self.anycubic.finish_request()
+        # while not self.anycubic.get_finish_flag():
+        #     if debug:
+        #         imshow = cam_gear.get_cam_frame(self.stream2) 
+        #     else:
+        #         frame = cam_gear.get_cam_frame(self.stream1)  
+        #         self.frame = self.cam.undistort(frame)
+        #         imshow = self.frame.copy()
+
+        #     #cv2.imshow('Camera', imshow) 
+        #     self.show_frame(imshow)  # Show the frame in the main window
+
+        #     self.update_idletasks()
+        #     self.update()
+
+        # #print("All offsets right now: ", self.settings["Offset"])
+        # #print("Main (?) offsets right now: ", self.offset) 
+
+        # self.tip_number = 1
+        # self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
+            
+        # # Offset camera calibration
+        # # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], offset=self.settings["Offset"]["Camera"])
+        # # #self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1])
+
+        # # self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Camera"])
+        # # Updated Versions (?)
+        # #self.move_xyz(z=self.safe_height)
+
+        # # self.calibration_process(self.key_pressed, self.settings["Offset"]["Camera"])
+        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
+        #                                     y=self.settings["Offset"]["Calibration point"][1], 
+        #                                     z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Camera"])
+        # # self.move_xyz(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1], z=self.settings["Offset"]["Calibration point"][2])
+
+
+        # while True:
+        #     if debug:
+        #         imshow = cam_gear.get_cam_frame(self.stream2)
+        #     else:
+        #         frame = cam_gear.get_cam_frame(self.stream1)
+        #         self.frame = self.cam.undistort(frame)
+        #         #self.invert = cv.invert(self.frame)
+
+        #         # Rotate the image 90 degrees to the left
+        #         #print("Image rotation doesnt work?")
+        #         imshow = cv2.rotate(self.frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        #         imshow = self.frame.copy()
+            
+        #     # Draw a cross in the center of the image to calibate the camera on the hole
+        #     markerSize = 15
+        #     thickness = 1
+        #     center = (imshow.shape[1] // 2, imshow.shape[0] // 2)
+        #     imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
+
+        #     self.show_frame(imshow)  # Show the frame in the main window
+            
+
+        #     if self.key_pressed == 'Return':  # Enter key
+        #         print("Offset cam: ", self.settings["Offset"]["Camera"])
+        #         self.key_pressed = None
+        #         break
+            
+        #     elif self.key_pressed is not None:
+        #         self.settings["Offset"]["Camera"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Camera"])
+        #         self.key_pressed = None
+
+        #     self.update_idletasks()
+        #     self.update()
+
+
+        # # while True:
+        # # #### Maybe try to change the control for calibrating the camera, to make it more intuitive
+        # # #### We can also try to flip the camera if it is better
+        # #     if debug:
+        # #         imshow = cam_gear.get_cam_frame(self.stream2) 
+        # #     else:
+        # #         frame = cam_gear.get_cam_frame(self.stream1)  
+        # #         self.frame = self.cam.undistort(frame)
+        # #         self.invert = cv.invert(self.frame)
+        # #         imshow = self.frame.copy()
+            
+        # #     # self.macro_frame = cam_gear.get_cam_frame(self.stream2) 
+                
+        # #     # Inputs
+        # #     #key = cv2.waitKeyEx(5)
+        # #     self.show_frame(imshow)  # Show the frame in the main window
+
+        # #     # offset = self.settings["Offset"]["Camera"]
+        # #     # offset[2] += self.safe_height
+        # #     # offset = self.calibration_process(key, offset)
+        # #     # self.settings["Offset"]["Camera"][2] = 0
+            
+        # #     # if key == 13: #enter
+        # #     #     print("Offset cam: ", self.settings["Offset"]["Camera"])
+        # #     #     break
+            
+        # #     # markerSize = 15
+        # #     # thickness = 1
+        # #     # center = (imshow.shape[1]//2, imshow.shape[0]//2)
+        # #     # imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
+            
+        # #     # cv2.imshow('Camera', imshow) 
+        # #     if self.key_pressed == 'Return':  # Enter key
+        # #         print("Offset cam: ", self.settings["Offset"]["Camera"])
+        # #         self.key_pressed = None
+        # #         break
+            
+        # #     elif self.key_pressed is not None:
+        # #         self.settings["Offset"]["Camera"] = self.calibration_process(self.key_pressed, self.settings["Offset"]["Camera"])
+        # #         self.key_pressed = None
+
+        # #     self.update_idletasks()
+        # #     self.update()
+            
+        # #     markerSize = 15
+        # #     thickness = 1
+        # #     center = (imshow.shape[1] // 2, imshow.shape[0] // 2)
+        # #     imshow = cv2.drawMarker(imshow, center, (255, 0, 0), cv2.MARKER_CROSS, markerSize, thickness)
+
+        # # self.message_box.delete('1.0', tk.END)
+        # # self.message_box.insert(tk.END, "Camera Calibrated")
+        # # self.message_box.see(tk.END)
+        # # self.update_idletasks() 
+
+        # #print("All offsets right now: ", self.settings["Offset"])
+        # #print("Main (?) offsets right now: ", self.offset)
+
+        # # *****************************************************
+
+        # #self.anycubic.move_axis_relative(z=self.safe_height, offset=self.settings["Offset"]["Tip one"])
+        # #self.anycubic.move_axis_relative(x=220, y=220, offset=self.settings["Offset"]["Tip one"])
+        # # Updated Versions (?)
+        # self.move_xyz(x=220, y=220, go_safe_height=True)    
+
+        # if debug == False:
+        #     self.tip_pos_px = self.cam.platform_space_to_cam(self.settings["Offset"]["Tip one"], self.settings["Offset"]["Camera"]) + np.array([5, -5]) # small correction   
+            
+        # # cv2.destroyAllWindows()
+        # self.camera_feed_label.destroy()
+        # self.camera_feed_frame.destroy()
+        
+        # self.key_pressed = None
+        # self.message_box.delete('1.0', tk.END)
+        # self.update_idletasks()  # Force GUI update 
+
+        # #print("This is the end of the testing function guys!!")
     
     def set_tracker(self, target_px):
         self.tracker = cv2.TrackerCSRT.create() 
@@ -2095,9 +1962,20 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
         else:
             print("Starting detection!")
-            #self.detection_place = [30, 50, 65]
-            self.detection_place = [80, 106, 57]
+            #self.detection_place = [30, 50, 65] Nope thats wrong
 
+            # Putting on the more interesting camera feed
+            self.camera_displayed_text.set("Camera 1")
+            self.displayed_cameras = 1
+
+            #self.detection_place = [80, 106, 57]
+            # Because : self.petridish_pos = [66, 130] and  "Tip one": [-2.9, 4.5, -1.7] and  "Camera": [10.29, -22.5, 26.6]
+            # So 66 + 2.9 + 10.29 = 80.19 and 130 - 4.5 - 22.5 = 103.5 and z we do not really care about
+            # In other words, we could define the dection place as follows:
+            self.petridish_pos = [66, 130]
+            self.detection_place = [self.petridish_pos[0] - self.settings["Offset"]["Tip one"][0] + self.settings["Offset"]["Camera"][0],
+                                    self.petridish_pos[1] - self.settings["Offset"]["Tip one"][1] + self.settings["Offset"]["Camera"][1],
+                                    57]
 
             ''' Look at the petridish and look for tissues to pick up'''
             #if self.sub_state == 'go to position': 
@@ -2127,6 +2005,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.max_detect_attempt = 50
             self.min_radius = 15
             self.max_radius = 38
+            self.petridish_radius = 45
 
             self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
             self.sample_detector = cv.create_sample_detector(self.settings["Detection"]) 
@@ -2145,6 +2024,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
 
             target_px, optimal_angle = cv.detection(self)
+            print("Target pixel: ", target_px)
                         
             if target_px is not None:
                 print("Tissue detected")   
@@ -2157,6 +2037,20 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                 self.set_tracker(target_px)
                 self.target_pos = self.cam.cam_to_platform_space(target_px, self.detection_place)
                 self.offset_check = (self.dist_check*math.sin(optimal_angle), self.dist_check*math.cos(optimal_angle))
+
+                if (self.target_pos[0] - self.petridish_pos[0]) ** 2 + (self.target_pos[1] - self.petridish_pos[1]) ** 2 > self.petridish_radius ** 2:
+                    print("Target position is outside of the petridish")
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Tissue detected outside of the petridish")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+                    return
+                else:
+                    print("Target position is inside of the petridish")
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Tissue detected is inside of the petridish")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
 
                 #self.state = 'pick'
                 #self.sub_state = 'empty pipette'
@@ -2209,7 +2103,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                     cv2.imwrite("Pictures/cam2/failed_capture_" + str(file_count) + ".png", out)
                     logger.info('🔎 No tissue detected')
         
-        self.message_box.delete('1.0', tk.END)
+        #self.message_box.delete('1.0', tk.END)
         self.update_idletasks()
 
 
@@ -2222,7 +2116,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     def check_pickup(self):
         ## check how this is done
         print("Checking pickup function")
-        x, y, w, h = [int(i) for i in self.bbox]
+        x, y, w, h = [int(i) for i in self.bbox()]
         tracker_pos = [int(x+w/2), int(y+h/2)]
         
         if (tracker_pos[0]-self.tip_pos_px[0])**2+ (tracker_pos[1]-self.tip_pos_px[1])**2 < 20**2:
@@ -2230,168 +2124,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         else:
             return False
     
-    # def pick(self):  
-        
-    #     # if self.sub_state == 'empty pipette':
-        
-    #     #     if self.com_state == 'not send':
-    #     #         self.dyna.write_profile_velocity(self.settings["Tissues"]["Dropping speed"], ID = 1)
-    #     #         self.pipette_1_pos = 310
-    #     #         self.dyna.write_pipette_ul(self.pipette_1_pos, ID = 1)
-    #     #         self.com_state = 'send'
-                
-    #     #     elif self.dyna.pipette_is_in_position_ul(self.pipette_1_pos, ID = 1):
-    #     #         self.sub_state = 'go to position'
-    #     #         self.com_state = 'not send'
-
-    #     if self.target_pos is None:
-    #         print("There is no target tissue to pick up!")
-    #         return           
-        
-    #     self.pick_offset = 4
-    #     self.petridish_pos = [30, 50]
-    #     self.petridish_radius = 45
-    #     self.pipette_1_pos = 0
-    #     self.pipette_2_pos = 0
-       
-    #     self.select_offset(value="Camera")
-    #     self.anycubic.max_y_feedrate(30)
-    #     self.move_xyz(x=self.detection_place[0] - self.last_pos[0], y=self.detection_place[1] - self.last_pos[1], z=self.detection_place[2] - self.last_pos[2], move_button_cmd=False, go_safe_height=False)   
-    #     print("Moving to detection place")
-
-    #     self.dynamixel.write_profile_velocity(self.settings["Tissues"]["Dropping speed"], ID = 1)
-    #     self.pipette_1_pos = 310
-    #     self.dynamixel.write_pipette_ul(self.pipette_1_pos, ID = 1)
-    #     print(1)
-
-    #     while not self.dynamixel.pipette_is_in_position_ul(self.pipette_1_pos, ID = 1):
-    #         pass
-    #     print(2)
-
-    #     # elif self.sub_state == 'go to position':
-            
-    #         #if self.com_state == 'not send':
-    #     #self.anycubic.move_axis_relative(x=self.target_pos[0]+self.offset_check[0], y=self.target_pos[1]+self.offset_check[1], z=self.settings["Position"]["Pick height"] + self.pick_offset, f=self.settings["Speed"]["Medium speed"], offset=self.settings["Offset"]["Tip one"])
-    #     self.anycubic.move_axis_relative(x=self.target_pos[0]+self.offset_check[0]-self.last_pos[0], y=self.target_pos[1]+self.offset_check[1]-self.last_pos[1], z=self.settings["Position"]["Pick height"] + self.pick_offset, f=self.settings["Speed"]["Medium speed"], offset=self.settings["Offset"]["Tip one"])
-    #     self.anycubic.finish_request()
-    #     print(3)
-    #     print("Moving to more specific target position ?")
-    #             #self.com_state = 'send'
-    #     while not self.anycubic.get_finish_flag():
-    #         pass
-    #     print(4)
-
-    #         # elif self.anycubic.get_finish_flag():
-    #         #     self.sub_state = 'correction'
-    #         #     self.com_state = 'not send'
-                
-
-    #     #elif self.sub_state == 'correction':
-            
-    #         #if self.com_state == 'not send':
-    #             #if delay(self, 0.3):
-
-    #     x, y, w, h = self.bbox()
-    #     target_px = [int(x+w/2), int(y+h/2)]
-    #     cam_pos = (self.target_pos[0]+self.offset_check[0]-self.settings["Offset"]["Camera"][0]+self.settings["Offset"]["Tip one"][0], self.target_pos[1]+self.offset_check[1]-self.settings["Offset"]["Camera"][1]+self.settings["Offset"]["Tip one"][1], self.settings["Position"]["Pick height"] + self.pick_offset-self.settings["Offset"]["Camera"][2]+self.settings["Offset"]["Tip one"][2])
-    #     self.target_pos = self.cam.cam_to_platform_space(target_px, cam_pos)
-        
-    #     print("The targer position is: ", self.target_pos)
-    #     print("The petridish position is: ", self.petridish_pos)
-        
-    #     if (self.target_pos[0]-self.petridish_pos[0])**2+(self.target_pos[1]-self.petridish_pos[1])**2 > self.petridish_radius**2:
-    #         #self.state = 'reset'
-    #         #self.sub_state = 'go to position'
-    #         #self.com_state = 'not send'         
-    #         self.pick_attempt = 0
-    #         self.reset_pos = [30, 50, 10]
-    #         #self.release_tracker
-    #         self.anycubic.move_axis_relative(z=self.safe_height, f=self.settings["Speed"]["Fast speed"], offset=self.settings["Offset"]["Tip one"])
-    #         self.anycubic.move_axis_relative(x=self.reset_pos[0], y=self.reset_pos[1], f=self.settings["Speed"]["Fast speed"], offset=self.settings["Offset"]["Tip one"])
-    #         self.anycubic.move_axis_relative(z=self.reset_pos[2], f=self.settings["Speed"]["Fast speed"], offset=self.settings["Offset"]["Tip one"]) 
-    #         #self.anycubic.finish_request() 
-    #         print(5)
-    #         self.pick()   
-    #     else:              
-    #         man_corr = [0., 1.0] # Small manual offset to correct dynamic offset
-    #         self.anycubic.move_axis_relative(x=self.target_pos[0]+man_corr[0], y=self.target_pos[1]+man_corr[1], z=self.settings["Position"]["Pick height"], f=self.settings["Speed"]["Slow speed"], offset=self.settings["Offset"]["Tip one"])
-    #         # indirect move to go on top
-    #         # self.anycubic.move_axis_relative(x=self.target_pos[0], y=self.target_pos[1], z=self.settings["Position"]["Pick height"]+2, f=self.settings["Speed"]["Slow speed"])
-    #         # self.anycubic.move_axis_relative(z=self.settings["Position"]["Pick height"], f=self.settings["Speed"]["Slow speed"])
-    #         self.anycubic.finish_request()
-    #         print(6)
-    #         #self.com_state = 'send'
-    #     while not self.anycubic.get_finish_flag():
-    #         self.bbox = self.tracker.update(self.frame)
-    #         print("Updating tracker and moving to coorrect offset") 
-    #         pass
-    #     print(7)
-
-    #         # elif self.anycubic.get_finish_flag():
-    #         #     self.sub_state = 'suck'
-    #         #     self.com_state = 'not send'
-        
-
-    #     # elif self.sub_state == 'suck':
-            
-    #     #     if self.com_state == 'not send':
-    #     self.pipette_1_pos = self.pipette_1_pos - self.settings["Tissues"]["Pumping Volume"]
-    #     self.dynamixel.write_profile_velocity(self.settings["Tissues"]["Pumping speed"], ID = 1)
-    #     self.dynamixel.write_pipette_ul(self.pipette_1_pos, ID = 1)
-    #     print(8)
-        
-    #     #self.com_state = 'send'
-    #     print("Sucking up tissue") 
-
-    #     while not self.dynamixel.pipette_is_in_position_ul(self.pipette_1_pos, ID = 1):
-    #         pass
-    #     print(9)
-    #     #         self.sub_state = 'check'
-    #     #         self.com_state = 'not send'
-                
-        
-    #     # elif self.sub_state == 'check':
-            
-    #     #     if self.com_state == 'not send':
-    #     self.anycubic.move_axis_relative(z=self.settings["Position"]["Pick height"] + self.pick_offset, f=self.settings["Speed"]["Slow speed"], offset=self.settings["Offset"]["Tip one"])
-    #     self.anycubic.move_axis_relative(x=self.target_pos[0]+self.offset_check[0], y=self.target_pos[1]+self.offset_check[1], f=self.settings["Speed"]["Slow speed"], offset=self.settings["Offset"]["Tip one"])
-    #     self.anycubic.finish_request()
-    #     print(10) 
-
-    #         #self.com_state = 'send'
-    #     while not self.anycubic.get_finish_flag():
-    #         pass
-    #     print("Tissue picked up")
-    #         #elif self.anycubic.get_finish_flag():
-                
-    #             # print(check_pickup(self))
-    #     self.pick_attempt += 1
-    #     print(self.pick_attempt, self.settings["Detection"]["Max attempt"])
-                
-    #     if self.check_pickup: 
-    #         self.release_tracker
-    #                 # self.state = 'picture'
-    #                 # self.sub_state = 'go to position'
-    #                 # self.com_state = 'not send' 
-    #         self.pick_attempt = 0
-    #         print(11)
-    #         print("Tissue picked up successfully, check verified!")
-                    
-    #     elif self.pick_attempt >= self.settings["Detection"]["Max attempt"]:
-    #         # self.state = 'reset'
-    #         # self.sub_state = 'go to position'
-    #         # self.com_state = 'not send'
-    #         self.pick_attempt = 0
-    #         print(12) 
-    #         print("Tissue not picked up successfully, max attempts reached!")
-    #     # else:
-    #     #     self.sub_state = 'correction'
-    #     #     self.com_state = 'not send' 
-
-    #     else:
-    #         print(13)
-    #         print("Tissue not picked up successfully, should trying again")
-    #         self.pick()
+   
 
     def delay(seconds):
         start_time = tm.time()
@@ -2467,7 +2200,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     case _:
         #         raise ValueError('Wrong well plate type')
 
-        well_num = platform.well_num + 3
+        well_num = platform.well_num + 4
         # dim_x = platform.well_dim_x
         # dim_y = platform.well_dim_y
         
@@ -2479,7 +2212,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # well_col = well_num % wells_per_row
 
         # well_pos = [well_col * dim_x, well_row * dim_y]
-        well_pos = [139 + (well_num % 3) * 16.7, 114 + (well_num // 3) * 16.7]
+        # dist_between_wells = 16.7
+        dist_between_wells = 25
+
+        well_pos = [139 + (well_num % 3) * dist_between_wells, 114 + (well_num // 3) * dist_between_wells]
         # ! THIS POSITION IS NOT CORRECT, NEED TO BE ADJUSTED ?????????????????????????????????????????
         print("The well position will be: ", well_pos)
 
@@ -2496,8 +2232,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             'Millicell plate': 10
         }.get(well_type, 10) 
 
-        radius = diameter / 4
-        if platform.nb_sample == 0:
+        # radius = diameter / 4 # Why ?????????? radius = diameter / 2 no?
+        radius = diameter / 2
+
+        if platform.nb_sample < 2:
             offset = [0, 0]
         else:
             # angle = (platform.nb_sample - 1) * 2 * math.pi / (platform.settings["Well"]["Number of sample per well"] - 1)
@@ -2515,9 +2253,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     offset=platform.settings["Offset"]["Tip one"]
         # )
         platform.move_xyz(z=platform.safe_height - platform.last_pos[2])
+        print("Moving to safe height")
 
         #platform.reset_pos = [30, 50, 10]
-        platform.reset_pos = [30, 50, platform.settings["Position"]["Drop height"] + 10]
+        platform.petridish_pos = [66, 130]
+        platform.reset_pos = [platform.petridish_pos[0], platform.petridish_pos[1], platform.settings["Position"]["Drop height"] + 10]
         # THIS POSITION IS NOT CORRECT, NEED TO BE ADJUSTED ?????????????????????????????????????????
 
         # platform.anycubic.move_axis_relative(
@@ -2531,6 +2271,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     f=platform.settings["Speed"]["Fast speed"], 
         #     offset=platform.settings["Offset"]["Tip one"]
         # )
+        print("Moving to center of petridish position")
         platform.move_xyz(x=platform.reset_pos[0] - platform.last_pos[0], y=platform.reset_pos[1] - platform.last_pos[1], z=platform.reset_pos[2] - platform.last_pos[2])
 
         platform.anycubic.finish_request()
@@ -2571,22 +2312,30 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             return
 
         platform.pick_offset = 4
-        platform.petridish_pos = [30, 50]
+        #platform.petridish_pos = [30, 50]
+        platform.petridish_pos = [66, 130]
         platform.petridish_radius = 45
         platform.pipette_1_pos = 0
         platform.pipette_2_pos = 0
 
         # Empty pipette
-        platform.dynamixel.write_profile_velocity(platform.settings["Tissues"]["Dropping speed"], ID=1)
-        platform.pipette_1_pos = 310
-        platform.dynamixel.write_pipette_ul(platform.pipette_1_pos, ID=1)
-        while not platform.dynamixel.pipette_is_in_position_ul(platform.pipette_1_pos, ID=1):
-            continue
+        # platform.dynamixel.write_profile_velocity(platform.settings["Tissues"]["Dropping speed"], ID=1)
+        # platform.pipette_1_pos = 310
+        # platform.dynamixel.write_pipette_ul(platform.pipette_1_pos, ID=1)
+        # while not platform.dynamixel.pipette_is_in_position_ul(platform.pipette_1_pos, ID=1):
+        #     continue
+
+        # EMPTY PIPETTE SHOULD HAVE OWN BUTTON, GO TO CAMERA TOO
+
+        print("The Target is at position : ", platform.target_pos)
+        print("The Petridish is at position : ", platform.petridish_pos) 
+        print("The Petridish radius is : ", platform.petridish_radius)
+        print("The offset check is : ", platform.offset_check)
 
         # Move to position
         platform.move_xyz(
-            x=platform.target_pos[0] + platform.offset_check[0], 
-            y=platform.target_pos[1] + platform.offset_check[1], 
+            x=platform.target_pos[0] + platform.offset_check[0] - platform.last_pos[0], 
+            y=platform.target_pos[1] + platform.offset_check[1] - platform.last_pos[1], 
             z=platform.settings["Position"]["Pick height"] + platform.pick_offset)
         # ALL PICKING MOVEMENTS ARE WRONG, NEED TO BE ADJUSTED ?????????????????????????????????????????
        
@@ -2601,6 +2350,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         platform.anycubic.finish_request()
         while not platform.anycubic.get_finish_flag():
             continue
+        print("Moved to position")
 
         # Correction
         #platform.delay(0.3)
@@ -2611,10 +2361,13 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             platform.target_pos[1] + platform.offset_check[1] - platform.settings["Offset"]["Camera"][1] + platform.settings["Offset"]["Tip one"][1],
             platform.settings["Position"]["Pick height"] + platform.pick_offset - platform.settings["Offset"]["Camera"][2] + platform.settings["Offset"]["Tip one"][2]
         )
-        platform.target_pos = platform.cam.cam_to_platform_space(target_px, cam_pos)
+        #platform.target_pos = platform.cam.cam_to_platform_space(target_px, cam_pos)
         if (platform.target_pos[0] - platform.petridish_pos[0]) ** 2 + (platform.target_pos[1] - platform.petridish_pos[1]) ** 2 > platform.petridish_radius ** 2:
+            print("Target position is outside of the petridish")
             platform.reset()
             return
+        else:
+            print("Target position is inside of the petridish")
 
         # man_corr = [0., 1.0]
         # platform.anycubic.move_axis_relative(
@@ -2626,16 +2379,21 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # )
         # What is this man correction??
 
-        platform.anycubic.finish_request()
-        while not platform.anycubic.get_finish_flag():
-            continue
+        # platform.anycubic.finish_request()
+        # while not platform.anycubic.get_finish_flag():
+        #     continue
 
         # Suck
         platform.pipette_1_pos -= platform.settings["Tissues"]["Pumping Volume"]
         platform.dynamixel.write_profile_velocity(platform.settings["Tissues"]["Pumping speed"], ID=1)
         platform.dynamixel.write_pipette_ul(platform.pipette_1_pos, ID=1)
-        while not platform.dynamixel.pipette_is_in_position_ul(platform.pipette_1_pos, ID=1):
-            continue
+        # while not platform.dynamixel.pipette_is_in_position_ul(platform.pipette_1_pos, ID=1):
+        #     continue
+        # while platform.dynamixel.read_position(ID = 1) > platform.pipette_1_pos:
+        #     print("Sucking up the tissue; we are at: ", platform.dynamixel.read_position(ID = 1), " instead of ", platform.pipette_1_pos)   
+        #     continue
+
+        print("Sucked up the tissue")
 
         # Check pickup
         # platform.anycubic.move_axis_relative(
@@ -2655,16 +2413,21 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #platform.move_xyz(x=platform.target_pos[0] + platform.offset_check[0], y=platform.target_pos[1] + platform.offset_check[1], z=platform.settings["Position"]["Pick height"] + platform.pick_offset)
 
         # Instead this? :
-        platform.move_xyz(z=10)  
+        platform.move_xyz(z=platform.settings["Position"]["Pick height"] + platform.pick_offset + 10 - platform.last_pos[2])  
 
         platform.anycubic.finish_request()
         while not platform.anycubic.get_finish_flag():
             continue
+        print("Moved up a bit")
 
         if platform.check_pickup():
             platform.release_tracker()
-            platform.take_picture()
 
+            #platform.take_picture()
+            # function needs to be adapted still
+
+            print("Pickup successful")
+            
             platform.message_box.delete('1.0', tk.END)
             platform.update_idletasks()
         else:
@@ -2726,7 +2489,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         platform.update_idletasks()
 
         print("Now going to well number ", platform.well_num)
-        print("We gotta move ", dest[0] - platform.last_pos[0], dest[1] - platform.last_pos[1])
+        print("We have to move ", dest[0] - platform.last_pos[0], dest[1] - platform.last_pos[1])
         platform.move_xyz(x=dest[0] - platform.last_pos[0], y=dest[1] - platform.last_pos[1])
 
         platform.anycubic.finish_request()
@@ -2768,6 +2531,9 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             print(2)
             while not platform.dynamixel.pipette_is_in_position(platform.pipette_1_pos / (PIPETTE_MAX[0]-PIPETTE_MIN[0]), ID=1):
                 continue
+        #elif platform.pipette_1_pos < PIPETTE_MIN[0]:
+        elif platform.pipette_1_pos >= 570:
+            print("There is not enough liquid in the pipette to drop anything")
         else:
             platform.dynamixel.write_pipette_ul(platform.pipette_1_pos, ID=1)
             print(3)
@@ -2833,11 +2599,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         platform.update_idletasks()  
 
     def first_function(self):
-        print("This is the start of the testing function guys!!")
+        print("This is the start of the testing function!!")
         
-        self.move_home()
+        #self.move_home()
         
-        print("This is the end of the testing function guys!!")
+        print("This is the end of the testing function!!")
 
 if __name__ == "__main__":
     window = MyWindow()
