@@ -422,7 +422,7 @@ class Dynamixel:
         '''
         
         ## add offset according to the pipette empty
-        selected_IDs = self.fetch_and_check_ID(ID)
+        selected_IDs = self.fetch_and_check_ID(ID) 
         if purging:
             offset = self.pipette_max_ul-self.pipette_empty
         else:   
@@ -434,6 +434,7 @@ class Dynamixel:
             
         for selected_ID in selected_IDs:
             pos = int(PIPETTE_MIN[selected_ID-1] + volume_ul/self.pipette_max_ul*(PIPETTE_MAX[selected_ID-1]-PIPETTE_MIN[selected_ID-1]))
+            print( "position should be ", pos, " for ", volume_ul, "ul")
             self.write_position(pos=pos, ID = selected_ID)
             
             
@@ -444,6 +445,8 @@ class Dynamixel:
         
         a_pos = self.read_position(ID = ID)
         
+        print(" position should be ", d_pos," but currently is  ", a_pos)   
+
         if debug == True:
             print(" position should be ", d_pos," but currently is  ", a_pos)   
             

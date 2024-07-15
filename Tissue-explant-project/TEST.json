@@ -5,7 +5,7 @@
     },
     "Speed": {
         "Slow speed": 1.0,
-        "Medium speed": 8.0,
+        "Medium speed": 8,
         "Fast speed": 100
     },
     "Tissues": {
@@ -35,21 +35,21 @@
         "Number of wash": 2
     },
     "Detection": {
-        "Max attempt": 2,
+        "Max attempts": 20,
         "Max place attempts": 4,
-        "Size min": 63,
-        "Size max": 70,
+        "Size min": 75.0,
+        "Size max": 100.0,
         "Circularity min": 0.0,
-        "Convexity min": 0.8,
-        "Inertia min": 0.3
+        "Convexity min": 0.0,
+        "Inertia min": 0.0
     },
     "Well": {
         "Well preparation": true,
-        "Type": "TPP6",
-        "Number of sample per well": 4,
-        "Number of well": 2,
-        "Culture 1": "A1",
-        "Culture 2": "B2",
+        "Type": "Millicell plate",
+        "Number of sample per well": 3,
+        "Number of well": 1,
+        "Culture 1": "B3",
+        "Culture 2": "A2",
         "Culture 3": "B2",
         "Culture 4": "B2",
         "Culture 5": "A3",
@@ -67,24 +67,29 @@
             5.0
         ],
         "Tip one": [
-            -5.699999999999996,
-            5.999999999999995,
-            -2.400000000000001
+            -3.9000000000000017,
+            2.8000000000000007,
+            -2.1000000000000005
         ],
         "Tip two": [
-            -1.4000000000000001,
-            0.9999999999999999,
-            -2.0000000000000004
+            -0.6999999999999997,
+            0.7999999999999999,
+            1.5000000000000004
         ],
         "Camera": [
-            10.29999999999998,
-            -22.50000000000005,
+            10.499999999999979,
+            -22.300000000000047,
             26.600000000000108
         ],
         "Fixed Camera": [
-            -83.59999999999981,
-            3.100000000000001,
-            26.800000000000097
+            -3.9000000000000017,
+            -10.299999999999981,
+            21.600000000000023
+        ],
+        "Fixed Camera 2": [
+            -0.5999999999999993,
+            -10.299999999999981,
+            25.800000000000082
         ]
     },
     "Positions": {

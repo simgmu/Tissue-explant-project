@@ -109,7 +109,9 @@ class Camera:
     
     
     def cam_to_platform_space(self, coord, position):
-        
+
+        print("self,z_offset ", self.z_offset)
+
         coef_x = (position[2] + self.z_offset)/self.f[1]
         coef_y = (position[2] + self.z_offset)/self.f[0]
                 
@@ -469,6 +471,22 @@ def detection(self):
             
     if len(keypoints) == 0:
         return None, None
+    
+    # Added here by Simon
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    fontScale = 0.5
+    color = (255, 0, 0)
+    thickness = 1
+
+    for i in range(len(keypoints)):
+        size, _ = cv2.getTextSize(str(i+1), font, fontScale, thickness)
+        out = cv2.putText(out, str(i+1), (int(keypoints[i].pt[0]-size[0]/2),int(keypoints[i].pt[1]-5)), font, 
+                   fontScale, color, thickness, cv2.LINE_AA)
+    
+    # Add a visualization of the mask
+    cv2.imwrite(r"Pictures/detection/mask.png", self.mask)
+    cv2.imwrite(r"Pictures/detection/image_full_detection.png", out)
+    ########################################
        
     out = d_number(out, keypoints, YELLOW)
     out = d_circle(out, keypoints, self.max_radius, YELLOW)  
