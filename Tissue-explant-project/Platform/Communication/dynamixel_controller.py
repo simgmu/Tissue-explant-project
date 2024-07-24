@@ -434,7 +434,7 @@ class Dynamixel:
             
         for selected_ID in selected_IDs:
             pos = int(PIPETTE_MIN[selected_ID-1] + volume_ul/self.pipette_max_ul*(PIPETTE_MAX[selected_ID-1]-PIPETTE_MIN[selected_ID-1]))
-            print( "position should be ", pos, " for ", volume_ul, "ul")
+            # print( "servo position should be ", pos, " for ", volume_ul, "ul")
             self.write_position(pos=pos, ID = selected_ID)
             
             
@@ -445,10 +445,10 @@ class Dynamixel:
         
         a_pos = self.read_position(ID = ID)
         
-        print(" position should be ", d_pos," but currently is  ", a_pos)   
+        # print(" position should be ", d_pos," but currently is  ", a_pos)   
 
-        if debug == True:
-            print(" position should be ", d_pos," but currently is  ", a_pos)   
+        # if debug == True:
+            # print(" position should be ", d_pos," but currently is  ", a_pos)   
             
         if abs(d_pos-a_pos) <= 4:
             return True

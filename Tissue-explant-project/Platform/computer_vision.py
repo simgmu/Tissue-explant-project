@@ -110,7 +110,7 @@ class Camera:
     
     def cam_to_platform_space(self, coord, position):
 
-        print("self,z_offset ", self.z_offset)
+        # print("self,z_offset ", self.z_offset)
 
         coef_x = (position[2] + self.z_offset)/self.f[1]
         coef_y = (position[2] + self.z_offset)/self.f[0]
@@ -495,6 +495,12 @@ def detection(self):
         out = d_angles(out, keypoints[i], close_angles[i], RED)  
                 
     id_target = smallest_distances.index(max(smallest_distances))
+
+    while np.random.rand() < 0.5 and len(smallest_distances) > 2:
+        print("Let us randomly remove the target picked first")
+        smallest_distances.pop(id_target)
+        id_target = smallest_distances.index(max(smallest_distances))
+
     angles = close_angles[id_target]
     angles_diff = []
 
