@@ -15,7 +15,10 @@ import Developpement.Cam_gear as cam_gear
 import cv2
 
 
-debug = False
+debug = True
+skip_calibration = True
+gel_prep = True
+
 print_log = True
 print_all = False 
 print_pipette_state = False
@@ -1267,17 +1270,106 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         
     def set_tab_documentation(self):
-        # self.documentation_frame = tk.Frame(self.tab[self.tabs_name.index("Documentation")])
-        self.documentation_frame = tk.Frame(self.tabControl.tab("Documentation"))
-        self.documentation_frame.pack(expand=True, fill ='both')
-        
-        self.doc_text = tk.Text(self.documentation_frame, width=100, height=100)
-        self.doc_text.pack(expand=True, fill ='both')
-        self.documentation_text = '''test, test
-        test'''
-        self.doc_text.insert(tk.END, self.documentation_text)
-        self.doc_text.configure(state='disabled')
-        self.doc_text.configure(relief="flat")
+
+       # Clear existing widgets in the tab
+        for widget in self.tabControl.tab("Documentation").winfo_children():
+            widget.destroy()
+
+        # Get the frame for the "Documentation" tab
+        documentation_frame = self.tabControl.tab("Documentation")
+
+        # Load and display the image
+        try:
+            image_path = "Manual.png"  # Replace with your actual image file
+            img = Image.open(image_path)
+
+            original_img = Image.open(image_path)
+
+            ##################
+            # Get the width of the documentation frame
+            frame_width = 2144
+
+            # Calculate new height to maintain aspect ratio
+            aspect_ratio = original_img.width / original_img.height
+            new_height = int(frame_width / aspect_ratio)
+
+            # Resize the image
+            # print("Resizing image to", frame_width, "x", new_height, "instead of", original_img.width, "x", original_img.height)
+            img = original_img.resize((frame_width, new_height), Image.Resampling.LANCZOS)
+            #######################
+
+            # Resize if needed (optional)
+            # img = img.resize((1200, 900), Image.Resampling.LANCZOS)  # Adjust size as needed
+
+            photo = ImageTk.PhotoImage(img)
+
+            # Canvas to make the image scrollable
+            canvas = tk.Canvas(documentation_frame)
+            canvas.pack(side=tk.LEFT, fill="both", expand=True)
+
+            # Scrollbar for the canvas
+            scrollbar = ttk.Scrollbar(documentation_frame, orient=tk.VERTICAL, command=canvas.yview)
+            scrollbar.pack(side=tk.RIGHT, fill="y")
+            canvas.configure(yscrollcommand=scrollbar.set)
+
+
+            # Display the image on the canvas
+            canvas.create_image(0, 0, anchor="nw", image=photo)
+            canvas.image = photo  # Keep a reference to prevent garbage collection
+
+            # Configure the canvas to be scrollable
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+            # Bind mousewheel event for scrolling (if needed)
+            def _on_mousewheel(event):
+                # Only scroll if the "Documentation" tab is active
+                if print_all: print(" We are in tab: ", self.tabControl.get())
+                if self.tabControl.get() == self.tabs_name[5]:
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            canvas.focus_set()  # Set focus to the canvas
+
+  
+            # # Canvas to make the image scrollable (if needed)
+            # canvas = tk.Canvas(documentation_frame)
+            # canvas.pack(side=tk.LEFT, fill="both", expand=True)
+
+            # # Scrollbar for the canvas
+            # scrollbar = ttk.Scrollbar(documentation_frame, orient=tk.VERTICAL, command=canvas.yview)
+            # scrollbar.pack(side=tk.RIGHT, fill="y")
+            # canvas.configure(yscrollcommand=scrollbar.set)
+            # canvas.configure(scrollregion=canvas.bbox("all"))
+            # # scrollbar.config(command=canvas.yview)
+
+            # # Display the image on the canvas (only once)
+            # canvas.create_image(0, 0, anchor="nw", image=photo)
+            # canvas.image = photo  # Store a reference to prevent garbage collection
+
+            # # Function to enable scrolling when the tab is active
+            # def enable_scrolling(event):
+            #     canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            #     canvas.focus_set()  # Set focus to the canvas
+
+            # # Function to disable scrolling when the tab is inactive
+            # def disable_scrolling(event):
+            #     canvas.unbind_all("<MouseWheel>")
+
+            # # Function to handle mousewheel scrolling
+            # def _on_mousewheel(event):
+            #     canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+            # # Bind events to the tab
+            # self.tabControl.tab("Documentation").bind("<FocusIn>", enable_scrolling)
+            # self.tabControl.tab("Documentation").bind("<FocusOut>", disable_scrolling)
+                # Bind events to the tab (using bind_all)
+
+
+        except FileNotFoundError:
+            tk.Label(documentation_frame, text=f"Error: File '{image_path}' not found.").pack()
+
+
      
                
     def close_window(self):  
@@ -2967,7 +3059,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Suck
 
         # move_servo(self, sign, idx)
-        if print_all: print("The current position of the pipette is: ", self.dynamixel.read_position(ID = 1))
+        if print_all and debug == False: print("The current position of the pipette is: ", self.dynamixel.read_position(ID = 1))
         if print_all: print("The servo_pos : ", self.servo_pos[0])
         # if print_all: print("The pipette_1_pos : ", self.pipette_1_pos)
         
@@ -3220,7 +3312,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.message_box.see(tk.END)
         self.update_idletasks()
 
-        if print_all: print("The current position of the pipette is: ", self.dynamixel.read_position(ID = 1))
+        if print_all and debug == False: print("The current position of the pipette is: ", self.dynamixel.read_position(ID = 1))
         if print_all: print("The servo_pos : ", self.servo_pos[0])
         # if print_all: print("The pipette_1_pos: ", self.pipette_1_pos)
         
@@ -3330,6 +3422,36 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.message_box.delete('1.0', tk.END)
         self.update_idletasks() 
 
+    def mix(self, volume, speed, repeats = 3):
+
+        if self.servo_pos[1] < volume:
+            if print_log: logger.info("The pipette can not suck enough, please eject!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The pipette can not suck enough, please eject!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
+        for i in range(repeats):
+            if print_all: print("Mixing number ", i+1)
+
+            self.dynamixel.write_profile_velocity(speed, ID=2)
+            self.servo_pos[1] += volume
+
+            if debug == False:
+                while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+                    continue
+
+            self.dynamixel.write_profile_velocity(speed, ID=2)
+            self.servo_pos[1] -= volume
+
+            if debug == False:
+                while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                    continue
+
+        if print_all: print("Mixing done")
+
     def prepare_gel(self):
 
         if self.is_homed == False:
@@ -3351,7 +3473,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             return
         
         
-        if self.servo_pos[1] < self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"]:
+        if self.servo_pos[1] < self.settings["Solution A"]["Solution A pumping volume"] or self.servo_pos[1] < self.settings["Solution B"]["Solution B pumping volume"]:
             if print_log: logger.info("The pipette can not suck any more than that, please eject!")
             
             self.message_box.delete('1.0', tk.END)
@@ -3361,6 +3483,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             return
         
         # Parameters we have:
+
             #     "Solution A": {
             #     "Solution A pumping speed": 60,
             #     "Solution A dropping speed": 60,
@@ -3428,17 +3551,135 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Pump solution A
         self.dynamixel.write_profile_velocity(self.settings["Solution A"]["Solution A pumping speed"], ID=2)
         self.servo_pos[1] += self.settings["Solution A"]["Solution A pumping volume"]
-        while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+        
+        if debug == False:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+                continue
+
+
+        # Put A in the mixing tube:
+
+        # Move to the Mixing tube
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
             continue
 
+        self.move_xyz(x=self.settings["Positions"]["Mixing tubes"][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tubes"][1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+        
+        # Put Solution A into the Mixing tube
+        self.dynamixel.write_profile_velocity(self.settings["Solution A"]["Solution A dropping speed"], ID=2)
+        self.servo_pos[1] -= self.settings["Solution A"]["Solution A pumping volume"]
+
+        if debug == False:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                continue
+
+        # Move to rinsing tube
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(x=self.settings["Positions"]["Wash"][0] - self.last_pos[0], y=self.settings["Positions"]["Wash"][1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(z=self.settings["Positions"]["Wash"][2] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        # Rinse quickly
+        self.mix(self.settings["Solution A"]["Purging volume"], self.settings["Solution A"]["Purging speed"], self.settings["Gel"]["Number of wash"])
+
+
+        # Same as A for Solution B:
+
         # Move to solution B
-        # ???????????????????????????????????????????
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(x=self.settings["Positions"]["Solution B"][0] - self.last_pos[0], y=self.settings["Positions"]["Solution B"][1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(z=self.settings["Positions"]["Solution B"][2] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        # Pump solution B
+        self.dynamixel.write_profile_velocity(self.settings["Solution B"]["Solution B pumping speed"], ID=2)
+        self.servo_pos[1] += self.settings["Solution B"]["Solution B pumping volume"]
+        
+        if debug == False:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+                continue
+
+
+        # Put B in the mixing tube:
+
+        # Move to the Mixing tube
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(x=self.settings["Positions"]["Mixing tubes"][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tubes"][1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+        
+        # Put Solution B into the Mixing tube
+        self.dynamixel.write_profile_velocity(self.settings["Solution B"]["Solution B dropping speed"], ID=2)
+        self.servo_pos[1] -= self.settings["Solution B"]["Solution B pumping volume"]
+
+        if debug == False:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                continue
+
+        # Mixing
+        self.mix((self.settings["Solution B"]["Solution B pumping volume"] + self.settings["Solution A"]["Solution A pumping volume"]) * self.settings["Gel"]["Proportion of mixing volume"], self.settings["Solution A"]["Purging speed"], self.settings["Gel"]["Number of mix"])
+
+
+        # Go back to safe height
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+
 
         print("Gel preparation done")
         self.gel_preparation = True
         return 
     
     def apply_gel(self):
+
+        ###################################################
+        # These parameters need to be manually changable or at least pre-defined
+        gel_volume_per_well = self.settings["Solution A"]["Solution A pumping volume"] # completely random atm
+        gel_pumping_speed = self.settings["Solution A"]["Solution A pumping speed"]
+        gel_dropping_speed = self.settings["Solution A"]["Solution A dropping speed"]
+        ###################################################
 
         if self.is_homed == False:
             if print_log: logger.info("Printer not even homed yet, please home the printer first! Full calibration recommended!")
@@ -3474,14 +3715,129 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
-        print("Applying gel into all the selected wells")
+
+        if self.servo_pos[1] < gel_volume_per_well * len(self.selected_wells):
+            if print_log: logger.info("The pipette can not pump that much; select less wells perhaps!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The pipette can not pump that much; select less wells perhaps!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
         
-        #
-        #
-        #
-        #
-        #
+        if self.nb_sample != 0 or self.well_num != 0:
+            if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
         
+
+        # Take gel from the mixing tube (right amount):
+        # Move to the Mixing tube
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(x=self.settings["Positions"]["Mixing tubes"][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tubes"][1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        # Pump the gel
+        self.dynamixel.write_profile_velocity(gel_pumping_speed, ID=2)
+        self.servo_pos[1] += gel_volume_per_well * len(self.selected_wells)
+        
+        if debug == False:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+                continue
+
+        # Move to the first selected well (bc safety height here is higher than above the well plate)
+        dest = self.destination()
+        # Move to well
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(x=dest[0] - self.last_pos[0], y=dest[1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        # Place it in all selected wells
+        for well in self.selected_wells:
+                
+                dest = self.destination()
+                self.well_num += 1
+                # Move to well
+                self.move_xyz(z=self.safe_height - self.last_pos[2])
+                self.anycubic.finish_request()
+                while not self.anycubic.get_finish_flag():
+                    continue
+    
+                self.move_xyz(x=dest[0] - self.last_pos[0], y=dest[1] - self.last_pos[1])
+                self.anycubic.finish_request()
+                while not self.anycubic.get_finish_flag():
+                    continue
+    
+                self.move_xyz(z=self.settings["Gel"]["Well plate pumping height"] - self.last_pos[2])
+                self.anycubic.finish_request()
+                while not self.anycubic.get_finish_flag():
+                    continue
+    
+                # Drop the gel
+                self.dynamixel.write_profile_velocity(gel_dropping_speed, ID=2)
+                self.servo_pos[1] -= gel_volume_per_well
+    
+                if debug == False:
+                    while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                        continue
+
+        self.well_num = 0
+
+        # Rinse pipette
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(x=self.settings["Positions"]["Wash"][0] - self.last_pos[0], y=self.settings["Positions"]["Wash"][1] - self.last_pos[1])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.move_xyz(z=self.settings["Positions"]["Wash"][2] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        # Rinse quickly
+        self.mix(self.settings["Solution A"]["Purging volume"], self.settings["Solution A"]["Purging speed"], self.settings["Gel"]["Number of wash"])
+        
+        # Go back to safe height
+        self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        # Go to a safe location
+        self.move_xyz(x=self.petridish_pos[0] - self.last_pos[0], y=self.petridish_pos[1] - self.last_pos[1])
+
+        if print_all: print("Gel application done")
+        if print_log: logger.info("Gel application done")
+
+        # Now the same gel is not usuable again, so we reset the gel preparation flag
+        self.gel_preparation = False
+
         return 
 
     def pick_and_place(self):
@@ -3702,12 +4058,70 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             self.reset()
 
+        # In case gel preparation is part of the full process
+        gel_volume_per_well = self.settings["Solution A"]["Solution A pumping volume"] # completely random atm
+        # Again, this volume is to be checked ??? Does this make sense: dropping volume A + dropping volume B ??
+
+        if self.settings["Tissues"]["Number of samples per pick"] <= 1 and gel_prep:
+        
+            if self.servo_pos[1] < self.settings["Solution A"]["Solution A pumping volume"] or self.servo_pos[1] < self.settings["Solution B"]["Solution B pumping volume"]:
+                if print_log: logger.info("The pipette can not suck any more than that, please eject!")
+                
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "The pipette can not suck any more than that, please eject!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+
+            if self.servo_pos[1] < gel_volume_per_well * len(self.selected_wells):
+                if print_log: logger.info("The pipette can not pump that much; select less wells perhaps!")
+                
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "The pipette can not pump that much; select less wells perhaps!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+            
+            if self.nb_sample != 0 or self.well_num != 0:
+                if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+                
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+
         self.manual_mode = False
 
         self.bind('<Key>', self.on_key_press)
         self.key_pressed = None
 
-        while self.well_num < self.settings["Well"]["Number of well"]:
+        if self.settings["Tissues"]["Number of samples per pick"] <= 1 and gel_prep:
+            
+            self.prepare_gel()
+
+            if self.key_pressed == 'BackSpace':
+                self.key_pressed = None
+                if print_log: logger.info("Run all interrupted!")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Run all interrupted!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+
+            self.apply_gel()
+
+            if self.key_pressed == 'BackSpace':
+                self.key_pressed = None
+                if print_log: logger.info("Run all interrupted!")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Run all interrupted!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+
+        # while self.well_num < self.settings["Well"]["Number of well"]:
+        while self.well_num < len(self.selected_wells):
             
             self.pick_and_place()
 
@@ -3744,8 +4158,9 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
 
         # For Convinience
-        self.move_home()
-        self.tip_calibration_done = True
+        if skip_calibration:
+            self.move_home()
+            self.tip_calibration_done = True
 
         # self.run_all()
 
