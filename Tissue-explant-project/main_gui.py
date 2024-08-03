@@ -317,7 +317,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.z_button_down  = None
         
         
-        self.safe_height        = 55
+        # self.safe_height        = 55
+        self.safe_height        = 70
         
         self.offset             = [0, 0, 0]
         self.coord_label        = []
@@ -444,20 +445,23 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.full_calibration_button = ctk.CTkButton(self.calibration_frame, text="Full Calibration", command=self.fullcalibration)  
         self.full_calibration_button.grid(row=1, column=0, padx=10, pady=10)
         
-        self.xyz_homing_button = ctk.CTkButton(self.calibration_frame, text="XYZ Homing", command=self.move_home)
-        self.xyz_homing_button.grid(row=3, column=0, padx=10, pady=10)
-        
         self.calibrate_offset_button = ctk.CTkButton(self.calibration_frame, text="Calibrate Tips", command=self.offsetcalibration) 
         self.calibrate_offset_button.grid(row=2, column=0, padx=10, pady=10)
+        
+        self.calibrate_offset_button = ctk.CTkButton(self.calibration_frame, text="Calibrate Tubes", command=self.tubecalibration) 
+        self.calibrate_offset_button.grid(row=3, column=0, padx=10, pady=10)
+
+        self.xyz_homing_button = ctk.CTkButton(self.calibration_frame, text="XYZ Homing", command=self.move_home)
+        self.xyz_homing_button.grid(row=4, column=0, padx=10, pady=10)
 
         self.take_picture_button = ctk.CTkButton(self.calibration_frame, text="Fixed Camera", command=self.take_picture) 
-        self.take_picture_button.grid(row=4, column=0, padx=10, pady=10)
-
-        self.take_picture_button = ctk.CTkButton(self.calibration_frame, text="Empty Pipette", command=self.empty_out) 
         self.take_picture_button.grid(row=5, column=0, padx=10, pady=10)
 
-        self.take_picture_button = ctk.CTkButton(self.calibration_frame, text="Remove Tip-bubble", command=self.remove_bubble) 
+        self.take_picture_button = ctk.CTkButton(self.calibration_frame, text="Empty Pipette", command=self.empty_out) 
         self.take_picture_button.grid(row=6, column=0, padx=10, pady=10)
+
+        self.take_picture_button = ctk.CTkButton(self.calibration_frame, text="Remove Tip-bubble", command=self.remove_bubble) 
+        self.take_picture_button.grid(row=7, column=0, padx=10, pady=10)
         
     
     def step_buttons(self):
@@ -572,7 +576,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.param_tree_frame = ctk.CTkFrame(self.tabControl.tab("Parameters"))
         self.param_tree_frame.place(relx = 0.1, rely=0.1, relheight=0.8, relwidth=0.5)
         self.update_parameters()
-        
+
         self.edit_parameter_frame = ctk.CTkFrame(self.tabControl.tab("Parameters"))
         self.edit_parameter_frame.place(relx = 0.6, rely=0.3)
         
@@ -590,6 +594,24 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.parameter_menu.grid(column=0, row=0, sticky="w")
         self.show_parameters(self.clicked_parameter_1.get())  ## maybe there's a way to not call this
         self.empty_label_param_1 = ctk.CTkLabel(self.edit_parameter_frame, text=" ").grid(column=0, row=1, sticky="w")
+
+
+        # New Informative text at the top
+        self.info_label = ctk.CTkLabel(self.tabControl.tab("Parameters"), 
+                                    text="This is your informative text line at the top.",
+                                    wraplength=500)  # Adjust wraplength as needed
+        self.info_label.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=10)
+
+        self.update_infotext()
+
+    def update_infotext(self):
+        txt = "You have selected " + str(self.settings["Solution A"]["Solution A pumping volume"]) + " for the Solution A pumping volume, " + str(self.settings["Solution B"]["Solution B pumping volume"]) + " for the Solution B pumping volume and want to drop " + str(self.settings["Gel"]["Gel volume per well"]) + " into " + str(self.settings["Well"]["Number of well"]) + " well"
+        if self.settings["Well"]["Number of well"] > 1:
+            txt += "s"
+        clr = "black"
+        if self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"] < self.settings["Gel"]["Gel volume per well"] * self.settings["Well"]["Number of well"]:
+            clr = "red"
+        self.info_label.configure(text=txt, text_color=clr)
         
     
     def show_parameters(self, click):
@@ -627,7 +649,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.save_new_parameter_button = ctk.CTkButton(self.sub_parameter_frame, text="Save", command=self.save_new_parameter)
         self.save_new_parameter_button.grid(column=0, row=5, sticky="w")
 
-
     def save_new_parameter(self):
         
         param1 = self.clicked_parameter_1.get()
@@ -648,6 +669,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             else:
                 self.settings[param1][param2] = val
         self.update_parameters()
+        self.update_infotext()
    
    
     def check_param_value(self, val):
@@ -758,10 +780,16 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         self.well_reset_button.grid(column=1, row=0)
 
-        # iIitial type of well plate and initial selection of the first one!
-        self.clicked_well.set(self.options[2]) 
+        # initial type of well plate and initial selection of the first one!
+        # self.clicked_well.set(self.options[2]) 
+        self.clicked_well.set(self.settings["Well"]["Type"])
         self.show_wells(self.clicked_well.get())
-        self.toggle_well(3, self.layout[self.options.index(self.clicked_well.get())])
+        # self.toggle_well(3, self.layout[self.options.index(self.clicked_well.get())])
+        for i in range(self.settings["Well"]["Number of well"]):
+            self.toggle_well(self.label_row.index(self.settings["Well"][f"Culture {i+1}"][1]) + self.layout[self.options.index(self.clicked_well.get())][1] * self.label_col.index(self.settings["Well"][f"Culture {i+1}"][0]),
+                              self.layout[self.options.index(self.clicked_well.get())])
+        # self.settings["Well"]["Number of well"] = 1
+        self.update_infotext()
         
             
     def show_wells(self, click):
@@ -820,7 +848,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             
         if len(self.selected_wells)==6:
             self.text_remaining_wells.set("You cannot select more wells") 
-            self.remaining_wells.configure(text_color="")
+            self.remaining_wells.configure(text_color="red")
         else:
             self.text_remaining_wells.set("You can still select "+str(6-len(self.selected_wells))+" wells")
             self.remaining_wells.configure(text_color="black")
@@ -838,6 +866,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Reset counts to zero
         self.well_num = 0
         self.nb_sample = 0
+
+        self.update_infotext()
 
 
     
@@ -2241,7 +2271,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     
    
 
-    def delay(seconds):
+    def delay(self, seconds):
         start_time = tm.time()
         while tm.time() - start_time < seconds:
             pass
@@ -3422,7 +3452,122 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.message_box.delete('1.0', tk.END)
         self.update_idletasks() 
 
+
+    def tubecalibration(self):
+
+        self.message_box.delete('1.0', tk.END)
+        self.message_box.insert(tk.END, "Tube Calibration started")
+        self.message_box.see(tk.END)
+        self.update_idletasks()  # Force GUI update
+
+
+        if self.is_homed == False:
+            if print_all: print("You need to home the printer first")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "You need to home the printer first")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
+        # Select pipette 2
+        self.tip_number = 2
+        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
+        self.clicked_pipette.set(self.toolhead_position[self.tip_number])
+        
+        self.move_xyz(z = self.safe_height - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.bind('<Key>', self.on_key_press)
+        self.key_pressed = None
+
+        for tube in ["Solution A", "Wash", "Solution B", "Mixing tubes"]:
+
+            self.move_xyz(z = self.safe_height - self.last_pos[2])
+            self.anycubic.finish_request()
+            while not self.anycubic.get_finish_flag():
+                continue
+
+            self.move_xyz(x = self.settings["Positions"][tube][0] - self.last_pos[0], y = self.settings["Positions"][tube][1] - self.last_pos[1])
+            self.anycubic.finish_request()
+            while not self.anycubic.get_finish_flag():
+                continue
+
+            if print_all: print("Is this the x, y position of the " + tube + "?")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "Is this the x, y position of the " + tube + "?")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+
+            while True:
+                if self.key_pressed == 'Return':  # Enter key
+                    if print_all: print(tube + " position saved")
+                    self.key_pressed = None
+                    break
+                elif self.key_pressed is not None:
+                    self.adjusting_tube_positions(self.key_pressed, tube)
+                    self.key_pressed = None
+                
+                self.update_idletasks()
+                self.update()
+                # self.after(1000, lambda: print("We loopin"))            
+        
+        if print_all: print("Tube positions updated!")
+        self.message_box.delete('1.0', tk.END)
+        self.message_box.insert(tk.END, "Tube positions updated!")
+        self.message_box.see(tk.END)
+        self.update_idletasks()
+
+
+    
+    def adjusting_tube_positions(self, key, tube):
+
+        incr = 1
+
+        if key == "Right": #Right
+            self.settings["Positions"][tube][0] += incr
+            self.move_xyz(x = self.settings["Positions"][tube][0] - self.last_pos[0])
+
+        elif key == "Left": #Left
+            self.settings["Positions"][tube][0] -= incr
+            self.move_xyz(x = self.settings["Positions"][tube][0] - self.last_pos[0])
+
+        if key == "Up": #Forward
+            self.settings["Positions"][tube][1] += incr
+            self.move_xyz(y = self.settings["Positions"][tube][1] - self.last_pos[1])
+
+        elif key == "Down": #Backward
+            self.settings["Positions"][tube][1] -= incr
+            self.move_xyz(y = self.settings["Positions"][tube][1] - self.last_pos[1])
+
+        elif key == "u" or key == "U": #Up
+            if print_all: print("The height is to be set in the parameters, not here!")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The height is to be set in the parameters, not here!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+
+            self.move_xyz(z=1)
+
+        elif key == "d" or key == "D": #Down
+            if print_all: print("The height is to be set in the parameters, not here!")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The height is to be set in the parameters, not here!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+
+            self.move_xyz(z=-1)
+
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
+
+        self.update_parameters()
+
     def mix(self, volume, speed, repeats = 3):
+
+        repeats = int(repeats)
 
         if self.servo_pos[1] < volume:
             if print_log: logger.info("The pipette can not suck enough, please eject!")
@@ -3437,17 +3582,19 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             if print_all: print("Mixing number ", i+1)
 
             self.dynamixel.write_profile_velocity(speed, ID=2)
-            self.servo_pos[1] += volume
-
-            if debug == False:
-                while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
-                    continue
-
-            self.dynamixel.write_profile_velocity(speed, ID=2)
             self.servo_pos[1] -= volume
+            self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
 
             if debug == False:
                 while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                    continue
+
+            self.dynamixel.write_profile_velocity(speed, ID=2)
+            self.servo_pos[1] += volume
+            self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
+
+            if debug == False:
+                while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
                     continue
 
         if print_all: print("Mixing done")
@@ -3474,14 +3621,59 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         
         if self.servo_pos[1] < self.settings["Solution A"]["Solution A pumping volume"] or self.servo_pos[1] < self.settings["Solution B"]["Solution B pumping volume"]:
-            if print_log: logger.info("The pipette can not suck any more than that, please eject!")
+            if print_log: logger.info("The pipette can not take these pumping volumes!")
             
             self.message_box.delete('1.0', tk.END)
-            self.message_box.insert(tk.END, "The pipette can not suck any more than that, please eject!")
+            self.message_box.insert(tk.END, "The pipette can not take these pumping volumes!")
             self.message_box.see(tk.END)
             self.update_idletasks()
             return
         
+        if self.servo_pos[1] < self.settings["Solution A"]["Purging volume"]:
+            if print_log: logger.info("The pipette can not take the set purging volume!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The pipette can not take the set purging volume!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
+        if self.servo_pos[1] < (self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"]) * self.settings["Gel"]["Proportion of mixing volume"]:
+            if print_log: logger.info("The pipette can not take the set Gel-Mixing volume!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The pipette can not take the set Gel-Mixing volume!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+
+        # Volumes that will be pumped:
+        # - Solution A pumping volume
+        # + Solution A pumping volume
+        # Rinse: Solution A purging volume
+        # - Solution B pumping volume
+        # + Solution B pumping volume
+        # Mix: (Solution B pumping volume + Solution A purging volume) * Proportion of mixing volume
+
+        # The max volume that needs to be taken in is either:
+        # Solution A pumping volume
+        # Solution A purging volume
+        # Solution B pumping volume
+        # (Solution B pumping volume + Solution A purging volume) * Proportion of mixing volume
+
+
+
+        # And during gel application:
+        # - Gel: gel volume_per_well * len(selected_wells)
+        # + Gel: gel volume_per_well * len(selected_wells)
+        # Rinse: Solution A purging volume
+        
+        # The max volume that needs to be taken in is either:
+        # gel volume_per_well * len(selected_wells)
+        # Solution A purging volume
+
+
+
         # Parameters we have:
 
             #     "Solution A": {
@@ -3550,12 +3742,17 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         # Pump solution A
         self.dynamixel.write_profile_velocity(self.settings["Solution A"]["Solution A pumping speed"], ID=2)
-        self.servo_pos[1] += self.settings["Solution A"]["Solution A pumping volume"]
-        
+        self.servo_pos[1] -= self.settings["Solution A"]["Solution A pumping volume"]
+        self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
+
+        if print_all: print("Pumping solution A")
+
         if debug == False:
-            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                if print_all: print("Pumping solution A; we are at: ", self.dynamixel.read_pos_in_ul(ID = 2)[0], " instead of ", self.servo_pos[1])
                 continue
 
+        if print_all: print("Solution A pumped")
 
         # Put A in the mixing tube:
 
@@ -3575,13 +3772,18 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
         
+        if print_all: print("Putting solution A into the mixing tube")
+
         # Put Solution A into the Mixing tube
         self.dynamixel.write_profile_velocity(self.settings["Solution A"]["Solution A dropping speed"], ID=2)
-        self.servo_pos[1] -= self.settings["Solution A"]["Solution A pumping volume"]
+        self.servo_pos[1] += self.settings["Solution A"]["Solution A pumping volume"]
+        self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
 
         if debug == False:
-            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
                 continue
+
+        if print_all: print("Solution A in the mixing tube")
 
         # Move to rinsing tube
         self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
@@ -3599,9 +3801,12 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
+        if print_all: print("Rinsing tube reached")
+
         # Rinse quickly
         self.mix(self.settings["Solution A"]["Purging volume"], self.settings["Solution A"]["Purging speed"], self.settings["Gel"]["Number of wash"])
 
+        if print_all: print("Rinsing done")
 
         # Same as A for Solution B:
 
@@ -3623,10 +3828,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         # Pump solution B
         self.dynamixel.write_profile_velocity(self.settings["Solution B"]["Solution B pumping speed"], ID=2)
-        self.servo_pos[1] += self.settings["Solution B"]["Solution B pumping volume"]
+        self.servo_pos[1] -= self.settings["Solution B"]["Solution B pumping volume"]
+        self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
         
         if debug == False:
-            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
                 continue
 
 
@@ -3650,10 +3856,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         # Put Solution B into the Mixing tube
         self.dynamixel.write_profile_velocity(self.settings["Solution B"]["Solution B dropping speed"], ID=2)
-        self.servo_pos[1] -= self.settings["Solution B"]["Solution B pumping volume"]
+        self.servo_pos[1] += self.settings["Solution B"]["Solution B pumping volume"]
+        self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
 
         if debug == False:
-            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
                 continue
 
         # Mixing
@@ -3675,10 +3882,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     def apply_gel(self):
 
         ###################################################
-        # These parameters need to be manually changable or at least pre-defined
-        gel_volume_per_well = self.settings["Solution A"]["Solution A pumping volume"] # completely random atm
-        gel_pumping_speed = self.settings["Solution A"]["Solution A pumping speed"]
-        gel_dropping_speed = self.settings["Solution A"]["Solution A dropping speed"]
+        # Added parameters:
+        gel_volume_per_well = self.settings["Gel"]["Gel volume per well"]
+        gel_pumping_speed = self.settings["Gel"]["Gel pumping speed"]
+        gel_dropping_speed = self.settings["Gel"]["Gel dropping speed"]
         ###################################################
 
         if self.is_homed == False:
@@ -3725,6 +3932,15 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
+        if self.servo_pos[1] < self.settings["Solution A"]["Purging volume"]:
+            if print_log: logger.info("The pipette can not take the set Purging volume!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The pipette can not take the set Purging volume!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
         if self.nb_sample != 0 or self.well_num != 0:
             if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
             
@@ -3734,6 +3950,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
+        # Select pipette 2
+        self.tip_number = 2
+        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
+        self.clicked_pipette.set(self.toolhead_position[self.tip_number])
 
         # Take gel from the mixing tube (right amount):
         # Move to the Mixing tube
@@ -3754,10 +3974,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         # Pump the gel
         self.dynamixel.write_profile_velocity(gel_pumping_speed, ID=2)
-        self.servo_pos[1] += gel_volume_per_well * len(self.selected_wells)
-        
+        self.servo_pos[1] -= gel_volume_per_well * len(self.selected_wells)
+        self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
+
         if debug == False:
-            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
                 continue
 
         # Move to the first selected well (bc safety height here is higher than above the well plate)
@@ -3796,10 +4017,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     
                 # Drop the gel
                 self.dynamixel.write_profile_velocity(gel_dropping_speed, ID=2)
-                self.servo_pos[1] -= gel_volume_per_well
+                self.servo_pos[1] += gel_volume_per_well
+                self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
     
                 if debug == False:
-                    while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
+                    while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
                         continue
 
         self.well_num = 0
@@ -4059,16 +4281,33 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.reset()
 
         # In case gel preparation is part of the full process
-        gel_volume_per_well = self.settings["Solution A"]["Solution A pumping volume"] # completely random atm
-        # Again, this volume is to be checked ??? Does this make sense: dropping volume A + dropping volume B ??
+        gel_volume_per_well = self.settings["Gel"]["Gel volume per well"]
 
         if self.settings["Tissues"]["Number of samples per pick"] <= 1 and gel_prep:
-        
+            
             if self.servo_pos[1] < self.settings["Solution A"]["Solution A pumping volume"] or self.servo_pos[1] < self.settings["Solution B"]["Solution B pumping volume"]:
-                if print_log: logger.info("The pipette can not suck any more than that, please eject!")
+                if print_log: logger.info("The pipette can not take these pumping volumes!")
                 
                 self.message_box.delete('1.0', tk.END)
-                self.message_box.insert(tk.END, "The pipette can not suck any more than that, please eject!")
+                self.message_box.insert(tk.END, "The pipette can not take these pumping volumes!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+            
+            if self.servo_pos[1] < self.settings["Solution A"]["Purging volume"]:
+                if print_log: logger.info("The pipette can not take the set purging volume!")
+                
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "The pipette can not take the set purging volume!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+            
+            if self.servo_pos[1] < (self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"]) * self.settings["Gel"]["Proportion of mixing volume"]:
+                if print_log: logger.info("The pipette can not take the set Gel-Mixing volume!")
+                
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "The pipette can not take the set Gel-Mixing volume!")
                 self.message_box.see(tk.END)
                 self.update_idletasks()
                 return

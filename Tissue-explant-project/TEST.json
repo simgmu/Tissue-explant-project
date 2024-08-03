@@ -13,28 +13,31 @@
         "Pumping speed": 65,
         "Dropping volume": 50.0,
         "Dropping speed": 151,
-        "Number of samples per well": 2.0,
+        "Number of samples per well": 1.0,
         "Number of samples per pick": 1.0
     },
     "Solution A": {
         "Solution A pumping speed": 60,
         "Solution A dropping speed": 60,
-        "Solution A pumping volume": 100,
+        "Solution A pumping volume": 50.0,
         "Purging speed": 100,
-        "Purging volume": 600
+        "Purging volume": 50.0
     },
     "Solution B": {
         "Solution B pumping speed": 30,
         "Solution B dropping speed": 35,
-        "Solution B pumping volume": 400
+        "Solution B pumping volume": 25.0
     },
     "Gel": {
         "Tube pumping height": 3.3,
         "Vial pumping height": 4.299999999999999,
-        "Well plate pumping height": 5,
+        "Well plate pumping height": 11.1,
         "Number of mix": 5,
         "Proportion of mixing volume": 0.7,
-        "Number of wash": 2.0
+        "Number of wash": 2.0,
+        "Gel volume per well": 75.0,
+        "Gel pumping speed": 60,
+        "Gel dropping speed": 60
     },
     "Detection": {
         "Max attempts": 20,
@@ -49,12 +52,12 @@
         "Well preparation": true,
         "Type": "TPP12",
         "Number of well": 1,
-        "Culture 1": "A4",
-        "Culture 2": "A2",
-        "Culture 3": "B1",
-        "Culture 4": "B2",
-        "Culture 5": "C1",
-        "Culture 6": "C2"
+        "Culture 1": "C2",
+        "Culture 2": "B3",
+        "Culture 3": "B3",
+        "Culture 4": "A4",
+        "Culture 5": "C4",
+        "Culture 6": "A2"
     },
     "Offset": {
         "None": [
@@ -95,24 +98,24 @@
     },
     "Positions": {
         "Solution A": [
-            63.0,
-            220.0,
+            62.0,
+            203.0,
             10.0
         ],
         "Solution B": [
-            66,
-            119,
-            60
+            102.0,
+            202.0,
+            10.0
         ],
         "Wash": [
-            46,
-            119,
-            60
+            82.0,
+            200.0,
+            10.0
         ],
         "Mixing tubes": [
-            65.0,
-            140.0,
-            41.0
+            42.0,
+            222.0,
+            10.0
         ]
     },
     "Saved Positions": {

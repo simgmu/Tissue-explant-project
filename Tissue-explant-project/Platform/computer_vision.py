@@ -4,6 +4,8 @@ import numpy as np
 # from skimage import measure, color
 import pickle
 import math
+import os
+
 
 # def get_cell_position():
 #     return tissue(50, 105, 10)
@@ -425,8 +427,20 @@ def distance(keypoint1, keypoint2):
 def detection(self):
     
     out = self.frame.copy()
-    cv2.imwrite(r"Pictures/detection/image.png", out)
     
+    
+    # cv2.imwrite(r"Pictures/detection/image.png", out)
+
+    macro_dir = r"Pictures/detection/"
+    if not os.path.exists(macro_dir):
+        os.makedirs(macro_dir)
+    
+    _, _, files = next(os.walk(macro_dir))
+    file_count = len(files)
+    cv2.imwrite("Pictures/detection/" + str(file_count) + "_image.png", out)
+    
+
+
     zoi = cv2.bitwise_and(self.invert, self.invert, mask=self.mask)
 
     # Detect blobs.
@@ -484,8 +498,10 @@ def detection(self):
                    fontScale, color, thickness, cv2.LINE_AA)
     
     # Add a visualization of the mask
-    cv2.imwrite(r"Pictures/detection/mask.png", self.mask)
-    cv2.imwrite(r"Pictures/detection/image_full_detection.png", out)
+    # cv2.imwrite(r"Pictures/detection/mask.png", self.mask)
+    # cv2.imwrite(r"Pictures/detection/image_full_detection.png", out)
+
+    cv2.imwrite("Pictures/detection/" + str(file_count) + "_image_full_detection.png", out)
     ########################################
        
     out = d_number(out, keypoints, YELLOW)
@@ -522,7 +538,9 @@ def detection(self):
     out = d_angles(out, keypoints[id_target], [optimal_angle], GREEN)   
     out = d_circle(out, [keypoints[id_target]], 5, GREEN)
         
-    cv2.imwrite(r"Pictures/detection/image_detection.png", out)
+    # cv2.imwrite(r"Pictures/detection/image_detection.png", out)
+    cv2.imwrite("Pictures/detection/" + str(file_count) + "_image_detection.png", out)
+
     return [keypoints[id_target].pt[0], keypoints[id_target].pt[1]], optimal_angle
         
     
