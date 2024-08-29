@@ -1,0 +1,2 @@
+pyinstaller --onefile --windowed --icon=my_app_icon.ico main_gui.py
+Then: take app file out of dist folder and make a shortcut to have it outside! 

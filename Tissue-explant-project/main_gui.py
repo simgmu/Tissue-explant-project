@@ -7,6 +7,8 @@ import math
 import os
 import time as tm
 from loguru import logger
+import threading
+import queue
     
 from Platform.Communication.ports_gestion import * 
 import Platform.computer_vision as cv
@@ -14,10 +16,17 @@ from PIL import Image, ImageTk
 import Developpement.Cam_gear as cam_gear
 import cv2
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="customtkinter") 
 
-debug = True
-skip_calibration = True
+
+debug = False
+skip_calibration = False
 gel_prep = True
+cam_check = True
+manual_first_check = False
+
+mask_size = 150 # it actually should be 200 but the petri-dish borders are annoying for picks
 
 print_log = True
 print_all = False 
@@ -29,11 +38,13 @@ else:
     from Platform.Communication.dynamixel_controller import *
     from Platform.Communication.printer_communications import * 
     import Developpement.Cam_gear as cam_gear
+
+
+import importlib
     
 
 ### ATTENTION AU OFFSET  !!!
-
-SETTINGS = "TEST.json"
+SETTINGS = "settings.json"
 X_MIN = -9.0
 # X_MAX = 183.0 # Why was this so low?
 X_MAX = 190.0
@@ -52,6 +63,13 @@ LIGHT_COLOR = "#ebebeb"
 
 DEFAULT_LIGHT = "#dbdbdb"
 DEFAULT_DARK = "#2b2b2b"
+
+
+#################################################################################################################################
+#                                                           GUI elements                                                        #
+#################################################################################################################################
+
+
 
 class ArrowButtonRight(tk.Frame):  ## replace these with pictures
     def __init__(self, master=None, size=40, target_class=None, printer_class=None, **kwargs):
@@ -166,7 +184,6 @@ class RoundButton(tk.Canvas):
 class MyWindow(ctk.CTk):
     def __init__(self): 
         super().__init__()
-        # eventuellement ajouter des class pour les boutons, pour mieux gerer les scenarios, dui gnre les well plate button
         self.create_variables()
         if debug:
             self.title("X-Plant control panel - Debug mode")
@@ -213,17 +230,15 @@ class MyWindow(ctk.CTk):
     
     
     def create_variables(self):
-        '''
-        I created this because in some instance, I needed the variable to be created beforehand. At first, it was to make sure 
-        I could delete something, even if it didn't exist, but it turns out I misused the winfo_exists() method.
-        Before I realized this, I decided to pre create everything here, in order to avoid potential issues...
-        Now, this also serves as a dictionnary of variables (somewhat incomplete, as I didn't properly update this function once
-        I realized my mistake). But still, it is extremely useful. It's just that we can potentially remove half of the function
-        and it would still work.
-        '''
+       
         self.is_homed = False
         self.tip_calibration_done = False
         self.manual_mode = True
+        self.tissue_placed = True
+        self.auto_check = False
+        self.reference = None
+        self.current_mixing_tube = 1
+
         self.load_parameters()
         self.tab        = []
         self.tabControl = None
@@ -263,22 +278,23 @@ class MyWindow(ctk.CTk):
         self.selected_wells = []
 
         # Couple of adds
-        self.debug = debug
+        # self.debug = debug
         self.well_num = 0
+        self.well_nb_with_gel = 0
         self.nb_sample = 0
-        self.nb_samples_per_well = 0
+        # self.nb_samples_per_well = 0
         self.gel_preparation = False
         
         self.petridish_pos = [64, 131]
         self.petridish_radius = 45
         # self.tip_pos_px = [396, 736] # Is recalibrated during Tip calibration
-        self.tip_pos_px = [160, 430]
+        self.tip_pos_px = self.settings["Offset"]["Tip pixel position"]
         # self.tip_pos_px = [160 + 396.33953772 + 5, 430 - 736.22499283 - 5]
 
 
         # self.pipette_1_pos = 0
         # self.pipette_2_pos = 0
-        # Those two values to be discontinued
+        # Those two values are discontinued
 
         # if print_pipette_state: 
             # print("Pipette 1 position: ", self.pipette_1_pos, "Pipette 2 position: ", self.pipette_2_pos)
@@ -318,6 +334,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         
         # self.safe_height        = 55
+        # In regards to the tubes and vial heights, this safe height is much safer:
         self.safe_height        = 70
         
         self.offset             = [0, 0, 0]
@@ -341,11 +358,16 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         
         self.tip_number     = 0
-        self.pipette_empty  = 570 ## this variable shouldn't exists! We should calibrate with the value inside write_pipette_ul
+        self.pipette_empty  = 570 # this variable shouldn't exists! We should calibrate with the value inside write_pipette_ul
         self.pipette_max_ul = 680 # ONLY FOR PURGING
         self.servo_pos      = [self.pipette_empty, self.pipette_empty, 30]
         
         self.buffer_moves = []
+
+
+#################################################################################################################################
+#                                                   Connection/ Initialisation                                                  #
+#################################################################################################################################
                 
                 
     def connect_printer_dynamixel(self):
@@ -361,11 +383,34 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                                    pipette_empty=self.pipette_empty,    
                                    port_name=get_com_port("0403", "6014"))
         
-        self.anycubic.connect()
+        global debug
+        if print_all: print("Launching with debug mode: ", debug)
+        connection_success = self.anycubic.connect()
+        if connection_success == False:
+            debug = True
+        if print_all: print("After trying to connect, debug mode: ", debug)
+
+        if debug:
+            module = importlib.import_module('Platform.Communication.fake_communication')
+            globals().update(vars(module))
+            import Platform.Communication.fake_communication
+            self.anycubic = Printer(descriptive_device_name="printer", 
+                                port_name=get_com_port("1A86", "7523"), 
+                                baudrate=115200)
+        
+            self.dynamixel = Dynamixel(ID=[1,2,3], 
+                                    descriptive_device_name="XL430 test motor", 
+                                    series_name=["xl", "xl", "xl"], 
+                                    baudrate=57600,
+                                    pipette_max_ul = self.pipette_max_ul,
+                                    pipette_empty=self.pipette_empty,    
+                                    port_name=get_com_port("0403", "6014"))
+            self.anycubic.connect()
+
         if debug == False:
             self.anycubic.change_idle_time(time = 300)
         
-        self.dynamixel.begin_communication()
+        self.dynamixel.begin_communication()  
         self.dynamixel.set_operating_mode("position", ID="all")
         self.dynamixel.write_profile_velocity(100, ID="all")
         self.dynamixel.set_position_gains(P_gain = 2700, I_gain = 50, D_gain = 5000, ID=1)
@@ -393,7 +438,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.purging = False
         
             
-    def set_tabs(self, i): # maybe there's a cleaner way of doing this
+    def set_tabs(self, i):
         if i == self.tabs_name.index("Mode"):
             self.set_tab_mode()
         elif i == self.tabs_name.index("Cameras"):
@@ -411,28 +456,160 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     def debug_function(self):
         if print_all: print("test")
         
-    
+#################################################################################################################################
+#                                                  Tabs and their specifications                                                #
+#################################################################################################################################
+
     #### Functions related to the mode tab ####            
     def set_tab_mode(self):
         self.mode_control_frame = ctk.CTkFrame(self.tabControl.tab("Mode"))
-        self.mode_control_frame.place(relx=0.1, rely=0.1)
+        self.mode_control_frame.place(relx=0.1, rely=0)
         self.calibration_buttons()
         self.step_buttons()
 
         # Message text box
-        self.message_box = ctk.CTkTextbox(self.mode_control_frame, width=400, height=30)
-        self.message_box.grid(row=2, columnspan=2)
+        self.message_box = ctk.CTkTextbox(self.tabControl.tab("Mode"), width=500, height=30)
+        self.message_box.place(relx=0.1, rely=0.9)
+        # self.message_box.grid(row=2, columnspan=2)
         
         self.camera_mode_frame = ctk.CTkFrame(self.tabControl.tab("Mode"))
-        self.camera_mode_frame.place(relx=0.8, rely=0.7, anchor=tk.CENTER)
+        # self.camera_mode_frame.place(relx=0.8, rely=0.65, anchor=tk.CENTER)
+        self.camera_mode_frame.place(relx=0.6, rely=0)
+
         self.mode_camera_button = ctk.CTkButton(self.camera_mode_frame, 
                                              textvariable=self.camera_displayed_text,
                                              command= self.show_camera_control)
-        self.mode_camera_button.grid(row=0)
+        self.mode_camera_button.grid(row=6)
         
         self.camera_feed_mode = ctk.CTkLabel(self.camera_mode_frame, text = "", width=480, height=270)
-        self.camera_feed_mode.grid(row=1)  
+        self.camera_feed_mode.grid(row=7)  
+
+        # Toggle button 1
+        self.auto_check_toggle_1 = ctk.CTkSwitch(self.camera_mode_frame, text="Automatic Check 1",
+                                                command=self.toggle_auto_check_1,
+                                                onvalue=True, offvalue=False)
+        self.auto_check_toggle_1.grid(row=2)
+        # Initially set to True
+        self.auto_check_toggle_1.toggle()
+
+        # Toggle button 2
+        self.cam_check = ctk.CTkSwitch(self.camera_mode_frame, text="Include Check 2", 
+                                                command=self.toggle_cam_check,
+                                                onvalue=True, offvalue=False)
+        # self.auto_check_toggle.grid(row=4, column=0, columnspan=2, pady=10)  # Adjust grid placement as needed
+        # The toggle button should be above the camera feed (upper right corner)
+        self.cam_check.grid(row=3)
+        # Initially set to True
+        self.cam_check.toggle()
+
+
+        # Toggle button 3
+        self.auto_check_toggle_2 = ctk.CTkSwitch(self.camera_mode_frame, text="Automatic Check 2", 
+                                                command=self.toggle_auto_check,
+                                                onvalue=True, offvalue=False)
+        # self.auto_check_toggle.grid(row=4, column=0, columnspan=2, pady=10)  # Adjust grid placement as needed
+        # The toggle button should be above the camera feed (upper right corner)
+        self.auto_check_toggle_2.grid(row=4)
+
+        # Toggle button 4
+        self.gel_prep_toggle = ctk.CTkSwitch(self.camera_mode_frame, text="Include Gel in Run All",
+                                                command=self.gel_prep_toggle,
+                                                onvalue=True, offvalue=False)
+        self.gel_prep_toggle.grid(row=5)
+        # Initially set to True
+        self.gel_prep_toggle.toggle()
+
+
+
+        # Stopwatch
+        # title("Stopwatch")
+
+        # Timer label
+        self.timer_label = tk.Label(self.camera_mode_frame, text="00:00:00", font=("Arial", 30))
+        # self.timer_label.pack(pady=20)
+        self.timer_label.grid(row=0)
+
+        # # Button to simulate finishing the mixing process
+        # start_button = tk.Button(root, text="Finish Mixing", command=start_stopwatch)
+        # start_button.pack(pady=20)
+
+        self.stop_button = ctk.CTkButton(self.camera_mode_frame, text="Stop", command=self.stop_stopwatch)
+        self.stop_button.grid(row=1, pady=20)  # Place the button below the timer
+
+        self.running = False
+        self.start_time = None
+        self.update_queue = queue.Queue()
+        # Start the GUI loop
+        # root.mainloop()
+        self.after(100, self.process_queue)
+
+
+    def start_stopwatch(self):
+        self.running = True
+        self.start_time = tm.time()
+        threading.Thread(target=self.update_timer).start()
+        # self.update_timer()
+
+    def update_timer(self):
+        while self.running:
+            elapsed_time = tm.time() - self.start_time
+            formatted_time = self.format_time(elapsed_time)
+            # self.timer_label.configure(text=formatted_time)
+            # tm.sleep(0.1)  # Update every 100 ms
+            # self.after(100, self.update_timer)
+
+            # self.after(0, self.timer_label.config, {"text": formatted_time})
+            # tm.sleep(0.1)
+
+            self.update_queue.put(formatted_time)
+            tm.sleep(0.1)
+
+    
+    def process_queue(self):
+        while not self.update_queue.empty():
+            formatted_time = self.update_queue.get()
+            self.timer_label.config(text=formatted_time)
+        self.after(100, self.process_queue)  # Keep checking the queue
+
+
+    def format_time(self, seconds):
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
+
+    def stop_stopwatch(self):
+        self.running = False
+        if print_all: print("Stopwatch stopped at ", self.timer_label.cget("text"))
+        if print_log: logger.info("Stopwatch stopped at ", self.timer_label.cget("text"))
+
+
+    def toggle_cam_check(self):
+        global cam_check
+        cam_check = self.cam_check.get()
+        if print_all: print("Camera check included: ", cam_check)
+        if print_log: logger.info("Camera check included: ", cam_check)
         
+    def gel_prep_toggle(self):
+        global gel_prep
+        gel_prep = self.gel_prep_toggle.get()
+        if print_all: print("Gel preparation included: ", gel_prep)
+
+    def toggle_auto_check_1(self):
+        # Inverse of the current state of the toggle is the manual_first_check
+        global manual_first_check
+        if self.auto_check_toggle_1.get():
+            manual_first_check = False
+        else:
+            manual_first_check = True
+        if print_all: print("Manual first check: ", manual_first_check)
+
+
+    def toggle_auto_check(self):
+        self.auto_check = self.auto_check_toggle_2.get()  # Current state of the toggle
+        if self.auto_check:
+            if print_all: print("Switching to Automatic Check")
+        else:
+            if print_all: print("Switching to Manual Check")
         
     def calibration_buttons(self):
         
@@ -509,7 +686,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.frame = self.cam.undistort(frame)
             if print_all: print("the frame shape initially is :", self.frame.shape)
             self.invert = cv.invert(self.frame)
-            self.mask = cv.create_mask(200, self.frame.shape[0:2], (self.frame.shape[1]//2, self.frame.shape[0]//2))
+
+            # self.mask = cv.create_mask(200, self.frame.shape[0:2], (self.frame.shape[1]//2, self.frame.shape[0]//2))
+            self.mask = cv.create_mask(mask_size, self.frame.shape[0:2], (self.frame.shape[1]//2, self.frame.shape[0]//2))
+
             self.intruder_detector = cv.create_intruder_detector()
             self.min_radius = 15
             self.max_radius = 38
@@ -551,7 +731,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         
     def format_image(self, img, idx):
-        # img = cv2.resize(img, (320, 180))
+        img = cv2.resize(img, (900, 500))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(img)
         self.frames[idx] = ImageTk.PhotoImage(image=img)
@@ -574,7 +754,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     #### Functions related to the parameter tab ####    
     def set_tab_parameters(self):
         self.param_tree_frame = ctk.CTkFrame(self.tabControl.tab("Parameters"))
-        self.param_tree_frame.place(relx = 0.1, rely=0.1, relheight=0.8, relwidth=0.5)
+        self.param_tree_frame.place(relx = 0.1, rely=0.2, relheight=0.8, relwidth=0.5)
         self.update_parameters()
 
         self.edit_parameter_frame = ctk.CTkFrame(self.tabControl.tab("Parameters"))
@@ -604,13 +784,94 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         self.update_infotext()
 
+        # Save as new filename button
+        self.save_as_button = ctk.CTkButton(self.tabControl.tab("Parameters"), text="Save all settings as:", command=self.save_as)
+        self.save_as_button.grid(row=1, column=0, padx=10, pady=10)
+
+        # "Save as" text input box
+        self.save_as_entry = ctk.CTkEntry(self.tabControl.tab("Parameters"), width=50)
+        self.save_as_entry.grid(row=3, column=0, padx=10, pady=10)
+
+        # Import from file button
+        self.save_as_button = ctk.CTkButton(self.tabControl.tab("Parameters"), text="Import all settings from:", command=self.import_from)
+        self.save_as_button.grid(row=2, column=0, padx=10, pady=10)
+
+    def save_as(self):
+        new_filename = self.save_as_entry.get()
+        if print_all: print("Saving as new filename: ", new_filename)
+
+        # If Saved Settings folder does not exist, create it
+        if not os.path.exists("Saved Settings"):
+            os.makedirs("Saved Settings")
+        
+        if not new_filename.endswith(".json"):
+            new_filename += ".json"
+
+        if new_filename in os.listdir("Saved Settings"):
+            if print_all: print("File already exists. Overwriting.")
+        else:
+            if print_all: print("Creating new file.")
+        
+        new_filename = os.path.join("Saved Settings", new_filename)
+
+        with open(new_filename, "w") as jsonFile:
+            json.dump(self.settings, jsonFile, indent=4)
+       
+    def import_from(self):
+        filename = self.save_as_entry.get()
+        if print_all: print("Importing from filename: ", filename)
+        
+        if not filename.endswith(".json"):
+            filename += ".json"
+
+        # Does Saved Settings folder exist?
+        if not os.path.exists("Saved Settings"):
+            if print_all: print("'Saved Settings' folder does not exist.")
+            if print_log: logger.error("'Saved Settings' folder does not exist.")
+            return
+        
+        if filename in os.listdir("Saved Settings"):
+            if print_all: print("File found. Importing.")
+            with open(os.path.join("Saved Settings", filename), "r") as jsonFile:
+                self.settings = json.load(jsonFile)
+            self.update_parameters()
+        else:
+            if print_all: print("File not found. Please check the filename and try again.")
+            if print_log: logger.error("File not found. Please check the filename and try again.")
+
     def update_infotext(self):
-        txt = "You have selected " + str(self.settings["Solution A"]["Solution A pumping volume"]) + " for the Solution A pumping volume, " + str(self.settings["Solution B"]["Solution B pumping volume"]) + " for the Solution B pumping volume and want to drop " + str(self.settings["Gel"]["Gel volume per well"]) + " into " + str(self.settings["Well"]["Number of well"]) + " well"
+        # txt = "You have selected " + str(self.settings["Solution A"]["Solution A pumping volume"]) + " for the Solution A pumping volume, " + str(self.settings["Solution B"]["Solution B pumping volume"]) + " for the Solution B pumping volume and want to drop " + str(self.settings["Gel"]["Gel volume per well"]) + " into " + str(int(self.settings["Well"]["Number of well"])) + " well"
+        # if self.settings["Well"]["Number of well"] > 1:
+        #     txt += "s"
+        txt = "You have selected " + str(self.settings["Solution A"]["Solution A pumping volume"]) + "ul for the Solution A pumping volume, " + str(self.settings["Solution B"]["Solution B pumping volume"]) + "ul for the Solution B pumping volume and want to drop " + str(self.settings["Gel"]["Gel volume per well"]) + "ul per well."
+        txt += " You have selected " + str(int(self.settings["Well"]["Number of well"])) + " well"
         if self.settings["Well"]["Number of well"] > 1:
             txt += "s"
+        txt += " and have " + str(int(self.settings["Gel"]["Number of mixing tubes"])) + " mixing tubes."
         clr = "black"
-        if self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"] < self.settings["Gel"]["Gel volume per well"] * self.settings["Well"]["Number of well"]:
+        # if self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"] < self.settings["Gel"]["Gel volume per well"] * self.settings["Well"]["Number of well"]:
+        if self.settings["Solution A"]["Solution A pumping volume"] + self.settings["Solution B"]["Solution B pumping volume"] < self.settings["Gel"]["Gel volume per well"]:
             clr = "red"
+        if self.settings["Well"]["Number of well"] > (int(self.settings["Gel"]["Number of mixing tubes"])):
+            clr = "red"
+        if self.settings["Tissues"]["Number of samples per pick"] > 1:
+            if print_log: logger.info(txt)
+            txt = "With " + str(int(self.settings["Tissues"]["Number of samples per pick"])) + " sample"
+            if self.settings["Tissues"]["Number of samples per pick"] > 1:
+                txt += "s"
+            txt += " per pick, the gel will not be used."
+            clr = "black"
+            if print_log: logger.info(txt)
+        txt += " (" + str(int(self.settings["Tissues"]["Number of samples per pick"])) + " sample" 
+        if self.settings["Tissues"]["Number of samples per pick"] > 1:
+            txt += "s"
+        txt += " per pick, " + str(int(self.settings["Tissues"]["Number of samples per well"])) + " sample"
+        if self.settings["Tissues"]["Number of samples per well"] > 1:
+            txt += "s"
+        txt += " per well, in total: " + str(int(self.settings["Tissues"]["Number of samples per well"] * self.settings["Well"]["Number of well"])) + " sample"
+        if self.settings["Tissues"]["Number of samples per well"] * self.settings["Well"]["Number of well"] > 1:
+            txt += "s"
+        txt += ")"
         self.info_label.configure(text=txt, text_color=clr)
         
     
@@ -786,7 +1047,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.show_wells(self.clicked_well.get())
         # self.toggle_well(3, self.layout[self.options.index(self.clicked_well.get())])
         for i in range(self.settings["Well"]["Number of well"]):
-            self.toggle_well(self.label_row.index(self.settings["Well"][f"Culture {i+1}"][1]) + self.layout[self.options.index(self.clicked_well.get())][1] * self.label_col.index(self.settings["Well"][f"Culture {i+1}"][0]),
+            self.toggle_well(self.label_row.index(self.settings["Well"][f"Culture {i+1}"][1]) + self.layout[self.options.index(self.clicked_well.get())][1] * (self.layout[self.options.index(self.clicked_well.get())][0] - 1 - self.label_col.index(self.settings["Well"][f"Culture {i+1}"][0])),
                               self.layout[self.options.index(self.clicked_well.get())])
         # self.settings["Well"]["Number of well"] = 1
         self.update_infotext()
@@ -821,7 +1082,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             for j in range(self.layout[well_id][1]):
                 self.well_plate_grid.grid_rowconfigure(j, minsize=well_dim_y/self.layout[well_id][1])
                 self.well_buttons.append(tk.Button(self.well_plate_grid, 
-                                                   text=self.label_col[i]+self.label_row[j], 
+                                                   text=self.label_col[self.layout[well_id][0] - 1 - i]+self.label_row[j], 
                                                    width=5, 
                                                    relief="raised", 
                                                    command=lambda idx = index: (self.toggle_well(idx, self.layout[well_id]))))
@@ -832,7 +1093,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
     def toggle_well(self, index, layout):
         button = self.well_buttons[index]
         temp = self.label_row[index%layout[1]]
-        temp2 = self.label_col[index//layout[1]]
+        temp2 = self.label_col[layout[0] - 1 - index//layout[1]]
         if button['relief'] == "sunken":
             button.configure(relief = "raised")
             self.selected_wells.remove(temp2+temp)
@@ -859,18 +1120,18 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.settings["Well"]["Number of well"] = len(self.selected_wells)
         for i in range(len(self.selected_wells)):
             self.settings["Well"][f"Culture {i+1}"] = self.selected_wells[i]    
-        with open('TEST.json', 'w') as f:
+        with open(SETTINGS, 'w') as f:
             json.dump(self.settings, f, indent=4)
         self.update_parameters()
 
         # Reset counts to zero
         self.well_num = 0
+        self.well_nb_with_gel = 0
         self.nb_sample = 0
 
         self.update_infotext()
 
 
-    
     #### Functions related to the motion control tab ####   
     def set_tab_motion_control(self):
         
@@ -1010,13 +1271,20 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         ### ajouter un wait peut etre pour pas qu'il le fasse en même temps
         self.move_xyz(go_safe_height=True) 
       
-        
+    def set_speed(self, x, y, z):
+        self.anycubic.max_x_feedrate(x)
+        self.anycubic.max_y_feedrate(y)
+        self.anycubic.max_z_feedrate(z)
+
     def move_home(self):
         
         self.anycubic.homing()
-        self.anycubic.max_x_feedrate(300)
-        self.anycubic.max_y_feedrate(300)
-        self.anycubic.max_z_feedrate(25)   
+        # self.anycubic.max_x_feedrate(300)
+        # self.anycubic.max_y_feedrate(300)
+        # self.anycubic.max_z_feedrate(25) 
+
+        self.set_speed(300, 300, 25)
+
         self.anycubic.move_home()
         
         self.is_homed = True    
@@ -1067,18 +1335,14 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         if print_all: print("Setting position to X={}, Y={}, Z={}".format(x,y,z))
         if print_all: print("Offset is {}".format(self.offset))
         
-        #### Il faudrait coder ca pour qu'il aille dynamiquement dans le négatif, en prennant compte de l'offset, pour un code plus clean+
-         # ATTENTION DIFFERENCE BETWEEN STEPS AND MOVE COMMAND !!
-         # When we do a move command, currently, we lose the last position, 
-         # which is important for setting the correct negativ pos
-         # also, once this is done, there may be a bug, when changing the offset, while in negative
+        
         if (x < -offset[0]) or (self.last_pos[0] < -offset[0]):
             delta = round(x - self.last_pos[0],2)
             # if print_all: print(delta)
             if delta < 0: # we go further into the negative
                 self.anycubic.set_position(x = -delta) 
             elif x < 0: # we go in positive direction, but still in negative
-                self.anycubic.set_position(x = -delta) # I DON'T UNDERSTAND WHY THIS WORKS, BUT IT WORKS
+                self.anycubic.set_position(x = -delta) # this WORKS
             else: # we return to positive domain
                 self.anycubic.set_position(x = self.last_pos[0])
             
@@ -1280,7 +1544,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.settings['Saved Positions'][var]["Servo 2"] = self.servo_pos[1]
         self.settings['Saved Positions'][var]["Servo Speed"] = self.servo_pos[2] 
         self.update_parameters()
-            
+
             
     def add_function_to_buffer(self, function, *args):
         # add a function to the buffer
@@ -1361,40 +1625,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             canvas.bind_all("<MouseWheel>", _on_mousewheel)
             canvas.focus_set()  # Set focus to the canvas
 
-  
-            # # Canvas to make the image scrollable (if needed)
-            # canvas = tk.Canvas(documentation_frame)
-            # canvas.pack(side=tk.LEFT, fill="both", expand=True)
-
-            # # Scrollbar for the canvas
-            # scrollbar = ttk.Scrollbar(documentation_frame, orient=tk.VERTICAL, command=canvas.yview)
-            # scrollbar.pack(side=tk.RIGHT, fill="y")
-            # canvas.configure(yscrollcommand=scrollbar.set)
-            # canvas.configure(scrollregion=canvas.bbox("all"))
-            # # scrollbar.config(command=canvas.yview)
-
-            # # Display the image on the canvas (only once)
-            # canvas.create_image(0, 0, anchor="nw", image=photo)
-            # canvas.image = photo  # Store a reference to prevent garbage collection
-
-            # # Function to enable scrolling when the tab is active
-            # def enable_scrolling(event):
-            #     canvas.bind_all("<MouseWheel>", _on_mousewheel)
-            #     canvas.focus_set()  # Set focus to the canvas
-
-            # # Function to disable scrolling when the tab is inactive
-            # def disable_scrolling(event):
-            #     canvas.unbind_all("<MouseWheel>")
-
-            # # Function to handle mousewheel scrolling
-            # def _on_mousewheel(event):
-            #     canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-            # # Bind events to the tab
-            # self.tabControl.tab("Documentation").bind("<FocusIn>", enable_scrolling)
-            # self.tabControl.tab("Documentation").bind("<FocusOut>", disable_scrolling)
-                # Bind events to the tab (using bind_all)
-
 
         except FileNotFoundError:
             tk.Label(documentation_frame, text=f"Error: File '{image_path}' not found.").pack()
@@ -1403,17 +1633,73 @@ in which you can select UP TO 6 wells to use. You can then press the save button
      
                
     def close_window(self):  
-        with open("TEST.json", "w") as jsonFile:
-            json.dump(self.settings, jsonFile, indent=4)
-        try :
-            self.stream2.stop()
-        except:
-            pass
+        # with open(SETTINGS, "w") as jsonFile:
+        #     json.dump(self.settings, jsonFile, indent=4)
+        # try :
+        #     self.stream2.stop()
+        # except:
+        #     pass
+        # try:
+        #     self.stream1.stop()
+        # except:
+        #     pass
+        # self.isOpen = False
+     
+
+
+        # Reworked version:
+        # print("Closing the window")
+
+        # Save the current settings to a file
         try:
-            self.stream1.stop()
-        except:
-            pass
+            with open(SETTINGS, "w") as jsonFile:
+                json.dump(self.settings, jsonFile, indent=4)
+        except Exception as e:
+            print(f"Error saving settings: {e}")
+
+        # Stop camera streams 
+        try:
+            if hasattr(self, 'stream2') and self.stream2 is not None:
+                self.stream2.stop()
+                self.stream2.join()
+        except Exception as e:
+            print(f"Error stopping stream2: {e}")
+
+        try:
+            if hasattr(self, 'stream1') and self.stream1 is not None:
+                self.stream1.stop()
+                self.stream1.join()
+        except Exception as e:
+            print(f"Error stopping stream1: {e}")
+
+        # Stop stopwatch
+        self.stop_stopwatch()
+        self.running = False
+
+        # Cancel `after` callbacks
+        try:
+            if hasattr(self, '_after_id'):
+                self.after_cancel(self._after_id)
+        except Exception as e:
+            print(f"Error cancelling after callback: {e}")
+
+
+        # Mark the window as closed
         self.isOpen = False
+
+        # Destroy the main window to close the application
+        try:
+            self.destroy()
+        except Exception as e:
+            print(f"Error destroying window: {e}")
+
+        # print("Window closed")
+
+
+#################################################################################################################################
+#                                                     Calibration functions                                                     #
+#################################################################################################################################
+
         
     def calibration_process(self, key, offset):
         
@@ -1530,18 +1816,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.update_idletasks()  # Force GUI update
 
         self.move_home()
-        # self.x_firmware_limit_overwrite = -9
-        # self.x_firmware_limit_overwrite = -11
-
-        # # Create a frame to show the camera feed
-        # if not hasattr(self, 'camera_feed_frame'):
-        #     self.camera_feed_frame = tk.Frame(self.tabControl.tab("Mode"))
-        #     self.camera_feed_frame.grid(row=1, column=1, padx=10, pady=20, rowspan=10)
-
-        # # Create a label to show the camera feed within the frame
-        # if not hasattr(self, 'camera_feed_label'):
-        #     self.camera_feed_label = tk.Label(self.camera_feed_frame)
-        #     self.camera_feed_label.grid(row=0, column=0)
+        
 
         if hasattr(self, 'camera_feed_frame') and self.camera_feed_frame.winfo_exists():
             self.camera_feed_frame.destroy()
@@ -1553,8 +1828,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Create a label to show the camera feed within the frame
         self.camera_feed_label = tk.Label(self.camera_feed_frame)
         self.camera_feed_label.grid(row=0, column=0)
-
-
 
         # Bind key events
         self.bind('<Key>', self.on_key_press)
@@ -1582,7 +1855,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.message_box.see(tk.END)
         self.update_idletasks() 
 
-        self.key_pressed = None
+        self.key_pressed = "Down"
         while True:
             self.macro_frame = cam_gear.get_cam_frame(self.stream2)
             self.show_frame(self.macro_frame)  # Show the frame in the main window
@@ -1595,10 +1868,17 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                 self.settings["Offset"]["Fixed Camera"] = self.calibration_process_camera(self.key_pressed, self.settings["Offset"]["Fixed Camera"])
                 self.key_pressed = None
 
-            
-
             self.update_idletasks()
             self.update()
+
+        self.reference = self.macro_frame.copy()
+        # Save it as the reference picture in the macro folder
+        macro_dir = r"Pictures/macro"
+        if not os.path.exists(macro_dir):
+            os.makedirs(macro_dir)
+        
+        cv2.imwrite("Pictures/macro/reference.png", self.reference)
+
 
         self.message_box.delete('1.0', tk.END)
         self.message_box.insert(tk.END, "Fixed Camera Calibrated")
@@ -1608,13 +1888,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Same for the second pipette
         self.dynamixel.select_tip(tip_number=2, ID=3)
 
-        # self.anycubic.move_axis_relative(x=0, y=self.settings["Offset"]["Calibration point"][1] - self.settings["Offset"]["Fixed Camera"][1],z=self.settings["Offset"]["Calibration point"][2]-self.settings["Offset"]["Fixed Camera"][2], offset=self.settings["Offset"]["Fixed Camera 2"])
-        # self.anycubic.move_axis_relative(x=0, y=self.settings["Offset"]["Calibration point"][1], z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Fixed Camera 2"])
-        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Fixed Camera 2"][0]-self.settings["Offset"]["Fixed Camera 2"][0],
-        #                                 y=self.settings["Offset"]["Fixed Camera 2"][1]-self.settings["Offset"]["Fixed Camera 2"][1], 
-        #                                 z=self.settings["Offset"]["Fixed Camera 2"][2]-self.settings["Offset"]["Fixed Camera 2"][2], 
-        #                                 offset=[0,0,0])
-
+       
         self.anycubic.move_axis_relative(x=self.picture_pos, 
                                             y=self.settings["Offset"]["Calibration point"][1], 
                                             z=self.settings["Offset"]["Calibration point"][2], 
@@ -1827,7 +2101,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.message_box.see(tk.END)
         self.update_idletasks() 
 
-        self.move_xyz(x=220, y=220, go_safe_height=True)
      
         # The calibration of the pixel position of the tip needs to be rethought
         ###########################################################################################     
@@ -1840,6 +2113,47 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     if print_all: print("Tip position in pixels: ", self.tip_pos_px)
         ############################################################################################
 
+        # Manual calibration of the tip position in pixels
+        while True:
+            if debug:
+                imshow = cam_gear.get_cam_frame(self.stream2)
+            else:
+                frame = cam_gear.get_cam_frame(self.stream1)
+                self.frame = self.cam.undistort(frame)
+                #self.invert = cv.invert(self.frame)
+
+                # Rotate the image 90 degrees to the left
+                imshow = cv2.rotate(self.frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+                imshow = self.frame.copy()
+            
+            cv2.circle(imshow, (int(self.tip_pos_px[0]), int(self.tip_pos_px[1])), 10, (255, 0, 0), 2)
+
+            self.show_frame(imshow)  # Show the frame in the main window
+            self.update_idletasks()
+            self.update()
+
+            if self.key_pressed == 'Return':  # Enter key
+                if print_all: print("Tip pixels: ", self.tip_pos_px)
+                self.key_pressed = None
+                break
+            
+            elif self.key_pressed is not None:
+                self.tip_px_calibration(self.key_pressed)
+                self.key_pressed = None
+
+
+        self.message_box.delete('1.0', tk.END)
+        self.message_box.insert(tk.END, "Tip pixel position Calibrated")
+        self.message_box.see(tk.END)
+        self.update_idletasks() 
+
+        
+        
+        self.move_xyz(x=220, y=220, go_safe_height=True)
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
 
         #cv2.destroyAllWindows()
         self.camera_feed_label.destroy()
@@ -1850,6 +2164,22 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.update_idletasks()  # Force GUI update
 
         self.tip_calibration_done = True
+
+
+    def tip_px_calibration(self, key):
+        incr = 1
+
+        if key == "Right": #Right
+            self.tip_pos_px[0] += incr
+        elif key == "Left": #Left
+            self.tip_pos_px[0] -= incr
+        if key == "Up": #Up
+            self.tip_pos_px[1] -= incr
+        elif key == "Down": #Down
+            self.tip_pos_px[1] += incr
+
+        self.settings["Offset"]["Tip pixel position"] = self.tip_pos_px
+        self.update_parameters()
 
     def on_key_press(self, event):
         """Handle key press events."""
@@ -1925,6 +2255,12 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
 
         self.tip_calibration() 
+
+
+
+#################################################################################################################################
+#                                                  Main process functions                                                       #
+#################################################################################################################################
     
     def set_tracker(self, target_px):
         self.tracker = cv2.TrackerCSRT.create() 
@@ -1952,8 +2288,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             if print_all: print("Starting detection!")
             #self.detection_place = [30, 50, 65] Nope thats wrong
 
-
-
             # Putting on the more interesting camera feed
             self.camera_displayed_text.set("Camera 1")
             self.displayed_cameras = 1
@@ -1969,45 +2303,19 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.camera_feed_label = tk.Label(self.camera_feed_frame)
             self.camera_feed_label.grid(row=0, column=0)
 
-            # if debug:
-            #     self.frame = cam_gear.get_cam_frame(self.stream2)
-            # else:
-            #     self.frame = cam_gear.get_cam_frame(self.stream1)
-            # # self.frame = self.cam.undistort(frame)
-            # imshow = self.frame.copy()
-            # if debug == False:
-            #     imshow = self.cam.undistort(imshow)
-            # self.show_frame(imshow)
-            # self.update_idletasks()
-            # self.update()
-            
-            #self.detection_place = [80, 106, 57]
-            # Because : self.petridish_pos = [66, 130] and  "Tip one": [-2.9, 4.5, -1.7] and  "Camera": [10.29, -22.5, 26.6]
-            # So 66 + 2.9 + 10.29 = 80.19 and 130 - 4.5 - 22.5 = 103.5 and z we do not really care about
-            # In other words, we could define the dection place as follows:
-            # self.petridish_pos = [66, 130]
-            # self.petridish_pos = [64, 131]
 
-            self.detection_place = [self.petridish_pos[0] - self.settings["Offset"]["Tip one"][0] + self.settings["Offset"]["Camera"][0],
-                                    self.petridish_pos[1] - self.settings["Offset"]["Tip one"][1] + self.settings["Offset"]["Camera"][1],
-                                    60 + self.settings["Offset"]["Camera"][2]] # it was just 65 before, now it can be changed during calibration (good or not?)
-            # if print_all: print("Originally 30, 50, 65, but here we have ", self.detection_place)
-
-            # self.petridish_pos_for_camera = [68, 128, 60]
-            # self.detection_place = [self.petridish_pos_for_camera[0] + self.settings["Offset"]["Camera"][0],
-            #                         self.petridish_pos_for_camera[1] + self.settings["Offset"]["Camera"][1],
-            #                         self.petridish_pos_for_camera[2] + self.settings["Offset"]["Camera"][2]] # it was just 65 before, now it can be changed during calibration (good or not?)
+            self.petridish_pos_for_camera = [68, 128, 60]
+            self.detection_place = [self.petridish_pos_for_camera[0] + self.settings["Offset"]["Camera"][0],
+                                    self.petridish_pos_for_camera[1] + self.settings["Offset"]["Camera"][1],
+                                    self.petridish_pos_for_camera[2] + self.settings["Offset"]["Camera"][2]] # it was just 65 before, now it can be changed during calibration (good or not?)
            
 
-            ''' Look at the petridish and look for tissues to pick up'''
-            #if self.sub_state == 'go to position': 
-                #if self.com_state == 'not send':
-                    # self.anycubic.move_axis_relative(z=self.safe_height, f=self.settings["Speed"]["Fast speed"], offset=self.settings["Offset"]["Camera"])
-            #self.select_offset(value="Camera")
 
             prev_pos = self.last_pos
 
-            self.anycubic.max_y_feedrate(30)
+            # self.anycubic.max_y_feedrate(30)
+            self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"])
+
             self.move_xyz(x=self.detection_place[0] - self.last_pos[0], y=self.detection_place[1] - self.last_pos[1], z=self.detection_place[2] - self.last_pos[2], move_button_cmd=False, go_safe_height=False)
             
             #self.move_xyz(x=self.detection_place[0], y=self.detection_place[1], z=self.detection_place[2], move_button_cmd=False, go_safe_height=False)
@@ -2015,7 +2323,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             #self.move_xyz(x=30, y=50, z=65)
 
             self.anycubic.finish_request()
-            #self.com_state = 'send'
             while not self.anycubic.get_finish_flag():
                 pass
 
@@ -2041,19 +2348,12 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                 #elif self.anycubic.get_finish_flag():
 
             self.tip_number = 1
-            # self.detect_attempt = 0
-            # self.max_detect_attempt = 50
-            # self.min_radius = 15
-            # self.max_radius = 38
-            # self.petridish_radius = 45
 
             self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
-            self.sample_detector = cv.create_sample_detector(self.settings["Detection"]) 
-            #self.sub_state = 'analyse picture'
-            #self.com_state = 'not send'
+            self.clicked_pipette.set(self.toolhead_position[self.tip_number])
+
+            self.sample_detector = cv.create_sample_detector(self.settings["Detection"])             
                     
-                    
-            #elif self.sub_state == 'analyse picture':
             if debug:
                 self.frame = cam_gear.get_cam_frame(self.stream2)
                 frame = cam_gear.get_cam_frame(self.stream2) 
@@ -2068,7 +2368,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
 
             # if print_all: print("the frame shape now is :", self.frame.shape)
-            self.frame = self.cam.undistort(self.frame)
+            # self.frame = self.cam.undistort(self.frame)
             # if print_all: print("the frame shape after undisortion is :", self.frame.shape)
             
             # Maybe some sleep beforer selecting the same target over and over?
@@ -2079,7 +2379,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             # optimal_angle = 0
 
             if print_all: print("Target pixel: ", target_px)
-            print("Target pixel: ", target_px)
                         
             if target_px is not None:
                 if print_all: print("Tissue detected")   
@@ -2121,7 +2420,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
                 # if (self.target_pos[0] + self.settings["Offset"]["Tip one"][0] - self.petridish_pos[0]) ** 2 + (self.target_pos[1] + self.settings["Offset"]["Tip one"][1] - self.petridish_pos[1]) ** 2 > self.petridish_radius ** 2 - 5:
                 
-                # Can we do this in pixel space : 
+                # We now do this in pixel space : 
                 if (center[0] - self.frame.shape[1]//2) ** 2 + (center[1] - self.frame.shape[0]//2) ** 2 > 200 ** 2:
 
                     if print_all: print("Target position is outside of the petridish")
@@ -2168,9 +2467,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                     self.tissue_detected = True
                     self.detect_attempt = 0
 
-                #self.state = 'pick'
-                #self.sub_state = 'empty pipette'
-                #self.com_state = 'not send'
                 out = self.frame.copy()
 
                 if not debug:
@@ -2228,7 +2524,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                 #     cv2.imwrite("Pictures/cam2/failed_capture_" + str(file_count) + ".png", out)
                 #     if print_log: logger.info('🔎 No tissue detected')
                 ###################################################################################################
-                # This last block is the job of higher order functions like pick_and_place
+                # This last block is now the job of higher order functions like pick_and_place
         
         # wait 3s before destroying camera feed
         if self.manual_mode:
@@ -2264,10 +2560,50 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             print("Tracker position: ", tracker_pos)
             print("Tip position in pixels: ", self.tip_pos_px)
         
-        if debug or (tracker_pos[0]-self.tip_pos_px[0])**2+ (tracker_pos[1]-self.tip_pos_px[1])**2 < 20**2:
-            return True
-        else:
-            return False
+        # global manual_first_check
+        if print_all: print("Manual first check: ", manual_first_check)
+
+        if manual_first_check:
+
+            if print_all: print("Manual first check started.")
+
+            # Ask user if the pick seems successful
+            if debug or (tracker_pos[0]-self.tip_pos_px[0])**2+ (tracker_pos[1]-self.tip_pos_px[1])**2 < 20**2:
+                if print_all: print("Does the pick seem to be a success? (Enter/ Backspace) Automatic would say Yes!")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Does the pick seem to be a success? (Enter/ Backspace) Automatic would say Yes!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+            else:
+                if print_all: print("Does the pick seem to be a success? (Enter/ Backspace) Automatic would say No!")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Does the pick seem to be a success? (Enter/ Backspace) Automatic would say No!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                
+
+            # Wait for keyboard input for answer
+            # Bind key events
+            self.bind('<Key>', self.on_key_press)
+
+            self.key_pressed = None
+            while True:
+                if self.key_pressed == 'Return':  # Enter key
+                    self.key_pressed = None
+                    return True
+
+                elif self.key_pressed == 'BackSpace':  # Backspace key
+                    self.key_pressed = None
+                    return False
+                
+                self.update_idletasks()
+                self.update()
+
+        else:    
+            if debug or (tracker_pos[0]-self.tip_pos_px[0])**2+ (tracker_pos[1]-self.tip_pos_px[1])**2 < 20**2:
+                return True
+            else:
+                return False
     
    
 
@@ -2286,6 +2622,14 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
+        if self.reference is None and self.auto_check:
+            if print_all: print("You need to do a full calibration before using the automatic check")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "You need to do a full calibration before using the automatic check")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
         # Move to picture position
         #dest = self.destination()
         # self.anycubic.move_axis_relative(
@@ -2293,6 +2637,9 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     f=self.settings["Speed"]["Fast speed"], 
         #     offset=self.settings["Offset"]["Tip one"]
         # )
+
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"], self.settings["Speed"]["Medium speed"])
+
         self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
@@ -2310,35 +2657,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         if print_all: print("Moved to picture position")
         #self.anycubic.move_home()
 
-        # if dest[1] > 100:
-        #     self.anycubic.move_axis_relative(
-        #         x=self.picture_pos, 
-        #         y=100, 
-        #         f=self.settings["Speed"]["Fast speed"], 
-        #         offset=self.settings["Offset"]["Tip one"]
-        #     )
-        # else:
-        #     self.anycubic.move_axis_relative(
-        #         x=self.picture_pos, 
-        #         y=dest[1], 
-        #         f=self.settings["Speed"]["Fast speed"], 
-        #         offset=self.settings["Offset"]["Tip one"]
-        #     )
-        # self.x_firmware_limit_overwrite = -9
-
-        # self.anycubic.move_axis_relative(
-        #     x=self.picture_pos, 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
-
-        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], 
-        #                                      y=self.settings["Offset"]["Calibration point"][1],
-        #                                      z=self.settings["Offset"]["Calibration point"][2], 
-        #                                      offset=self.settings["Offset"]["Fixed Camera"])
         
-        # self.move_xyz(z=self.settings["Offset"]["Fixed Camera"][2]-self.last_pos[2], go_safe_height=False)
-        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=self.settings["Offset"]["Calibration point"][1]-self.last_pos[1],z=self.settings["Offset"]["Calibration point"][2], offset=self.settings["Offset"]["Fixed Camera"])
-        # self.anycubic.move_axis_relative(x=self.settings["Offset"]["Calibration point"][0], y=-self.settings["Offset"]["Fixed Camera"][1], offset=self.settings["Offset"]["Fixed Camera"])
         if self.tip_number == 1:
             perfect_pose_xz = [self.picture_pos + self.settings["Offset"]["Fixed Camera"][0], self.settings["Offset"]["Calibration point"][2] + self.settings["Offset"]["Fixed Camera"][2] - self.last_pos[2]]
         elif self.tip_number == 2:
@@ -2361,11 +2680,16 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
-            continue
+            pass
+
+
         if print_all: print("Moved to precise fixed camera position")
-        # self.delay(0.5)
         # self.pause()
-        if self.check_pickup_two():
+        sleep(4)
+
+        check = self.check_pickup_two()
+                
+        if check:
             self.move_xyz(x=-perfect_pose_xz[0], z=-perfect_pose_xz[1])
             self.anycubic.move_axis_relative(x=-self.x_firmware_limit_overwrite)
             if debug == False:
@@ -2398,43 +2722,53 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.camera_feed_label = tk.Label(self.camera_feed_frame)
         self.camera_feed_label.grid(row=0, column=0)
 
-        frame = cam_gear.get_cam_frame(self.stream2)
-        if debug:
-            self.frame = frame
-        else:
-            self.frame = self.cam.undistort(frame)
+        self.frame = cam_gear.get_cam_frame(self.stream2)
+        # if debug:
+        #     self.frame = frame
+        # else:
+        #     self.frame = self.cam.undistort(frame)
         imshow = self.frame.copy()
 
         self.show_frame(imshow)
         self.update_idletasks()
         self.update()
-        
-        self.message_box.delete('1.0', tk.END)
-        self.message_box.insert(tk.END, "Press Enter if the pick/place was good, Backspace if not")
-        self.message_box.see(tk.END)
-        self.update_idletasks() 
 
-        # Bind key events
-        self.bind('<Key>', self.on_key_press)
+        auto_good_pickup = self.auto_check_function(self.frame)
+        if print_all: print("Auto check pickup result (False = Empty): ", auto_good_pickup)
 
-        self.key_pressed = None
-        good_pickup = False
-        while True:
-            self.macro_frame = cam_gear.get_cam_frame(self.stream2)
-            # self.macro_frame = self.cam.undistort(self.macro_frame)
-            self.show_frame(self.macro_frame)  # Show the frame in the main window
-
-            if self.key_pressed == 'Return':  # Enter key
+        if self.auto_check:
+            self.macro_frame = self.frame
+            if (auto_good_pickup and not self.tissue_placed) or (not auto_good_pickup and self.tissue_placed):
                 good_pickup = True
-                self.key_pressed = None
-                break
+            else:
+                good_pickup = False
+        else:
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "Press Enter if the pick/place was good, Backspace if not")
+            self.message_box.see(tk.END)
+            self.update_idletasks() 
 
-            elif self.key_pressed == 'BackSpace':  # Backspace key
-                self.key_pressed = None
-                break
-            
-            self.update_idletasks()
-            self.update()
+            # Bind key events
+            self.bind('<Key>', self.on_key_press)
+
+            self.key_pressed = None
+            good_pickup = False
+            while True:
+                self.macro_frame = cam_gear.get_cam_frame(self.stream2)
+                # self.macro_frame = self.cam.undistort(self.macro_frame)
+                self.show_frame(self.macro_frame)  # Show the frame in the main window
+
+                if self.key_pressed == 'Return':  # Enter key
+                    good_pickup = True
+                    self.key_pressed = None
+                    break
+
+                elif self.key_pressed == 'BackSpace':  # Backspace key
+                    self.key_pressed = None
+                    break
+                
+                self.update_idletasks()
+                self.update()
 
         # self.macro_frame = self.stream2.read()
         
@@ -2445,9 +2779,16 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
         _, _, files = next(os.walk(macro_dir))
         file_count = len(files)
-        cv2.imwrite("Pictures/macro/macro_image_" + str(file_count) + ".png", self.macro_frame)
-        #### The first line was the one being used. In the future, update the neural network by taking a series of picture, 
-        #### and re-enable it instead of waiting for a user's confirmation
+
+        if (good_pickup and not self.tissue_placed) or (not good_pickup and self.tissue_placed):
+            cv2.imwrite("Pictures/macro/macro_image_" + str(file_count) + "_t.png", self.macro_frame)
+        elif (good_pickup and self.tissue_placed) or (not good_pickup and not self.tissue_placed):
+            cv2.imwrite("Pictures/macro/macro_image_" + str(file_count) + "_f.png", self.macro_frame)
+        else:
+            cv2.imwrite("Pictures/macro/macro_image_" + str(file_count) + ".png", self.macro_frame)
+        
+        #### Neural Network prediction from Axel:
+
         # res = self.NN.predict(cv2.cvtColor(self.macro_frame, cv2.COLOR_BGR2RGB).reshape(1, 480, 640, 3), verbose=0)
         # res = self.NN.predict(cv2.cvtColor(self.macro_frame, cv2.COLOR_BGR2GRAY).reshape(1, 480, 640, 1), verbose=0)
         # if print_log: logger.info(f"🔮 Prediciton results {res[0, 0]}")
@@ -2464,32 +2805,96 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #         return False
             
         #     self.macro_frame = self.stream2.read() 
-        #     cv2.imshow('Macro camera', self.macro_frame) 
+        #     cv2.imshow('Macro camera', self.macro_frame)
+         
+         
         self.camera_feed_label.destroy()
         self.camera_feed_frame.destroy()
 
         self.key_pressed = None
-        self.message_box.delete('1.0', tk.END)
-        self.update_idletasks()  # Force GUI update
+
+        if not self.auto_check:
+            self.message_box.delete('1.0', tk.END)
+            self.update_idletasks()  # Force GUI update
 
         return good_pickup
+    
+    def auto_check_function(self, img):
+
+        size = (40, 40)
+        focus_ratio = 0.5
+        threshold = 12
+
+        try:
+            img1 = Image.open("Pictures/macro/reference.png")
+        except:
+            if print_all: print("No reference picture found")
+            return False
+        
+        reference = np.array(img1)
+        new_image = np.array(img)
+
+        ref_image = cv2.resize(reference, size)
+        new_image = cv2.resize(new_image, size)
+
+        diff_image = cv2.absdiff(ref_image, new_image)
+
+        h, w, _ = diff_image.shape
+        focused_diff = diff_image[int(h * focus_ratio):, int(w * 0.25):int(w * 0.75)]
+
+        # Substract the mean of the border pixels from the difference image
+        left_col = focused_diff[:, 0]
+        right_col = focused_diff[:, -1]
+        border_pixels = np.vstack((left_col, right_col))
+        border_mean = np.mean(border_pixels, axis=(0, 1))
+
+        adjusted_diff = focused_diff - border_mean
+        adjusted_diff = np.clip(adjusted_diff, 0, 255)
+
+        avg_diff = np.mean(adjusted_diff)
+
+        if print_log: logger.info(f"🔮 Auto check results {avg_diff}")
+
+        #     print(f'Average difference: {avg_diff}')
+
+        #     # Visualization for debugging
+        #     plt.figure(figsize=(12, 4))
+        #     plt.subplot(1, 3, 1), plt.title('Reference Image'), plt.imshow(cv2.cvtColor(ref_image, cv2.COLOR_BGR2RGB))
+        #     plt.subplot(1, 3, 2), plt.title('New Image'), plt.imshow(cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB))
+        #     plt.subplot(1, 3, 3), plt.title('Difference Image'), plt.imshow(diff_image)
+        #     plt.show()
+
+        if avg_diff > threshold:
+
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "Auto check thinks that there is a tissue")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return True
+        else:
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "Auto check thinks that the tip is empty")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return False
+
 
     def destination(self):
 
         well_type = self.settings['Well']['Type']
-        # Add verfications for the well, can not place if none selected or if full
-        # Taken care of in the beginning of place() !!!
+        # Verfications for the well (can not place if none selected or if full)
+        # Taken care of in the beginning of place() !
 
         # well_num = self.well_num
 
-        # Experimental:
+        # Some twisted naming conversions starting here:
+
         well_name = self.selected_wells[self.well_num]
 
         # Convert well_name to well_num (A1 is 1, B1 is 2, etc.)
         well_col = ord(well_name[0]) - 64
         well_row = int(well_name[1])
 
-        # Experimental:
         total_nb_wells = {
             'TPP6': 6,
             'TPP12': 12,
@@ -2500,7 +2905,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             'Millicell plate': 6
         }.get(well_type, 12) 
 
-        # Experimental:
         nb_wells_per_row = {
             'TPP6': 2,
             'TPP12': 3,
@@ -2509,7 +2913,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             'NUNC48': 6,
             'FALCON48': 6,
             'Millicell plate': 2
-        }.get(well_type, 3) 
+        }.get(well_type, 3)
+
+        # Actually A1 is the furthest right and we go from right to left, so inversion:
+        well_col = nb_wells_per_row - well_col + 1
 
         well_num = well_col - 1 + (total_nb_wells / nb_wells_per_row - well_row) * nb_wells_per_row
 
@@ -2539,16 +2946,19 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             'Millicell plate': 10
         }.get(well_type, 10) 
 
-        dist_between_wells = 100/ (nb_wells_per_row + 1)
+
+        # bottom_left_well = [139, 114]
+        # dist_between_wells = 100/ (nb_wells_per_row + 1)
+        # Let us replace this with something that is calibreable:
+        bottom_left_well = self.settings["Positions"]["Well 1"]
+        dist_between_wells = self.settings["Positions"]["Well 2"][0] - self.settings["Positions"]["Well 1"][0]
 
         # dist_between_wells = 25 # the third one to the right is always off on the x axis ??? to be fixed
 
-        well_pos = [139 + (well_num % 3) * dist_between_wells, 114 + (well_num // 3) * dist_between_wells]
+        well_pos = [bottom_left_well[0] + (well_num % 3) * dist_between_wells, bottom_left_well[1] + (well_num // 3) * dist_between_wells]
 
-        # ! THIS POSITION IS NOT CORRECT, NEED TO BE ADJUSTED ?????????????????????????????????????????
         if print_all: print("The well position will be: ", well_pos)
 
-        # radius = diameter / 4 # Why ?????????? radius = diameter / 2 no?
         radius = diameter / 4 # radius of the smaller container in the well
 
         if self.nb_sample < 1:
@@ -2556,19 +2966,13 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         else:
             angle = (self.nb_sample) * 2 * math.pi / (self.settings["Tissues"]["Number of samples per well"] - 1)
             offset = [radius * math.cos(angle), radius * math.sin(angle)]
-            # Does not work for now!
             # offset = [0, 0]
         if print_all: print("The added offset will be: ", offset)
         return [well_pos[0] + offset[0], well_pos[1] + offset[1]]
 
     def reset(self):
-        # Move to safe height
-        # self.anycubic.move_axis_relative(
-        #     z=self.safe_height, 
-        #     f=self.settings["Speed"]["Fast speed"], 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
         
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"], self.settings["Speed"]["Medium speed"])
 
         # if the pipette is outside of the petridish area:
         if (self.petridish_pos[0] - self.last_pos[0]) ** 2 + (self.petridish_pos[1] - self.last_pos[1]) ** 2 > self.petridish_radius ** 2 - 5 or self.last_pos[2] < self.settings["Position"]["Drop height"]:
@@ -2578,19 +2982,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #self.reset_pos = [30, 50, 10]
         # self.petridish_pos = [66, 130]
         self.reset_pos = [self.petridish_pos[0], self.petridish_pos[1], self.settings["Position"]["Drop height"] + 10]
-        # THIS POSITION IS NOT CORRECT, NEED TO BE ADJUSTED ?????????????????????????????????????????
-
-        # self.anycubic.move_axis_relative(
-        #     x=self.reset_pos[0], 
-        #     y=self.reset_pos[1], 
-        #     f=self.settings["Speed"]["Fast speed"], 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
-        # self.anycubic.move_axis_relative(
-        #     z=self.reset_pos[2], 
-        #     f=self.settings["Speed"]["Fast speed"], 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
+        
         if print_all: print("Moving to center of petridish position")
         self.move_xyz(x=self.reset_pos[0] - self.last_pos[0], y=self.reset_pos[1] - self.last_pos[1])
 
@@ -2604,7 +2996,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
-        
 
         # Empty pipette
         self.dynamixel.write_profile_velocity(self.settings["Tissues"]["Dropping speed"], ID=1)
@@ -2641,6 +3032,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.message_box.see(tk.END)
             self.update_idletasks()
             return
+    
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"], self.settings["Speed"]["Medium speed"])
         
         if (self.petridish_pos[0] - self.last_pos[0]) ** 2 + (self.petridish_pos[1] - self.last_pos[1]) ** 2 > self.petridish_radius ** 2 - 5 or self.last_pos[2] < self.settings["Position"]["Drop height"]:
             self.move_xyz(z=self.safe_height - self.last_pos[2])
@@ -2703,6 +3096,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"], self.settings["Speed"]["Medium speed"])
+
         if (self.petridish_pos[0] - self.last_pos[0]) ** 2 + (self.petridish_pos[1] - self.last_pos[1]) ** 2 > self.petridish_radius ** 2 - 5 or self.last_pos[2] < self.settings["Position"]["Drop height"]:
             self.move_xyz(z=self.safe_height - self.last_pos[2])
             if print_all: print("Moving to safe height")
@@ -2785,24 +3180,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         self.pick_offset = 4
         center = (int(self.target_pos[0]), int(self.target_pos[1]))
-        #self.petridish_pos = [30, 50]
-        # self.petridish_pos = [66, 130]
-        # self.petridish_radius = 45
-        # self.pipette_1_pos = 0
-        # self.pipette_2_pos = 0
-
-        # Empty pipette
-        # self.dynamixel.write_profile_velocity(self.settings["Tissues"]["Dropping speed"], ID=1)
-        # self.pipette_1_pos = 310
-        # self.dynamixel.write_pipette_ul(self.pipette_1_pos, ID=1)
-        # while not self.dynamixel.pipette_is_in_position_ul(self.pipette_1_pos, ID=1):
-        #     continue
-
-        # EMPTY PIPETTE SHOULD HAVE OWN BUTTON, GO TO CAMERA TOO
-
-        # Putting on the more interesting camera feed
-        # self.camera_displayed_text.set("Camera 1")
-        # self.displayed_cameras = 1
 
         if hasattr(self, 'camera_feed_frame') and self.camera_feed_frame.winfo_exists():
             self.camera_feed_frame.destroy()
@@ -2811,7 +3188,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Adjust the row and padding to lower the frame
         self.camera_feed_frame.grid(row=1, column=1, padx=10, pady=20, rowspan=10)
 
-        # Create a label to show the camera feed within the frame
+        # Label to show the camera feed within the frame
         self.camera_feed_label = tk.Label(self.camera_feed_frame)
         self.camera_feed_label.grid(row=0, column=0)
 
@@ -2860,7 +3237,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # else:
         #     if print_all: print("!!!! Target position is inside of the petridish")
 
-        # Let us put the offset check to 0 for now
         if print_all: print("The offset check is : ", self.offset_check)
         # self.offset_check = [-1, 1]
         self.offset_check = [0, 0]
@@ -2905,11 +3281,12 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     z=self.settings["Position"]["Pick height"] + self.pick_offset - self.last_pos[2])
         
         steps = 3
-        speeds = [10, 5, 1]
+        # speeds = [10, 5, 1]
+        speeds = [self.settings["Speed"]["Medium speed"]/2, self.settings["Speed"]["Medium speed"]/4, self.settings["Speed"]["Slow speed"]]
         total_height = self.settings["Position"]["Pick height"] + self.pick_offset - self.last_pos[2]
         height_steps = [total_height + 10, -8, -2]
 
-        # Divide the movement into parts, going slower at every step:
+        # Divide the movement into parts, going slower at every step (This may require some finetuning):
         for i in range(0, steps):
 
             if print_all:
@@ -2918,47 +3295,13 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
             speed = speeds[i]
             # Make the move slower
-            self.anycubic.max_x_feedrate(speed)
-            self.anycubic.max_y_feedrate(speed)
-            self.anycubic.max_z_feedrate(speed)
+            self.set_speed(speed, speed, speed)
 
             # With the two offsets added :
             self.move_xyz(
                 x=self.target_pos[0] + self.offset_check[0] + self.settings["Offset"]["Tip one"][0] - self.settings["Offset"]["Camera"][0] - self.last_pos[0], 
                 y=self.target_pos[1] + self.offset_check[1] + self.settings["Offset"]["Tip one"][1] - self.settings["Offset"]["Camera"][1] - self.last_pos[1], 
                 z=height_steps[i])
-
-            # self.move_xyz(
-            #     x=self.target_pos[0] + self.offset_check[0] - self.last_pos[0] - self.settings["Offset"]["Camera"][0] + self.settings["Offset"]["Tip one"][0], 
-            #     y=self.target_pos[1] + self.offset_check[1] - self.last_pos[1] - self.settings["Offset"]["Camera"][1] + self.settings["Offset"]["Tip one"][1], 
-            #     z=self.settings["Position"]["Pick height"] + self.pick_offset - self.last_pos[2])
-
-            # For testing
-            # self.move_xyz(
-            #     x=self.target_pos[0] -19.5 - self.last_pos[0],
-            #     y=self.target_pos[1] + 4.1 - self.last_pos[1],
-            #     z=self.settings["Position"]["Pick height"] + self.pick_offset - self.last_pos[2])
-
-            # ALL PICKING MOVEMENTS ARE WRONG, NEED TO BE ADJUSTED ?????????????????????????????????????????
-        
-            # self.anycubic.move_axis_relative(
-            #     x=self.target_pos[0] + self.offset_check[0], 
-            #     y=self.target_pos[1] + self.offset_check[1], 
-            #     z=self.settings["Position"]["Pick height"] + self.pick_offset, 
-            #     f=self.settings["Speed"]["Medium speed"], 
-            #     offset=self.settings["Offset"]["Tip one"]
-            # )
-
-
-            # Is this first camera feed necessary?
-            # if debug:
-            #     self.frame = cam_gear.get_cam_frame(self.stream2)
-            # else:
-            #     self.frame = cam_gear.get_cam_frame(self.stream1)
-            # imshow = self.frame.copy()
-            # if debug == False:
-            #     imshow = self.cam.undistort(imshow)
-            # self.show_frame(imshow)
 
 
             self.anycubic.finish_request()
@@ -2984,15 +3327,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                 if success:
                     # Tracking success: Draw a rectangle around the tracked object
                     if print_all: print("Tracking success")
-                    # p1 = (int(self.bbox[0]), int(self.bbox[1]))
-                    # p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
-
-                    # p1, p2 = self.cam.platform_space_to_cam([p1, p2, self.settings["Position"]["Pick height"]], self.last_pos)
-
-                    # cv2.rectangle(self.frame, p1, p2, (255,0,0), 2, 1)
-                    # center = (int(self.bbox[0]), int(self.bbox[1]))
-
-                    # imshow = cv2.drawMarker(imshow, center, (0, 255, 0), cv2.MARKER_SQUARE, 10, 2)
 
                     x, y, w, h = [int(i) for i in self.bbox]
                     center = (int(x + w / 2), int(y + h / 2))
@@ -3024,14 +3358,9 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         
             if print_all: print("Moved to position")
 
-        # tm.sleep(3)
-        # self.camera_feed_label.destroy()
-        # self.camera_feed_frame.destroy()
-        # self.update_idletasks()
-
-        # return # for our testing purpose
     
-        # Correction
+        # Correction (deemed unnecessary and discontinued)
+
         #self.delay(0.3)
         # x, y, w, h = self.bbox
         # target_px = [int(x + w / 2), int(y + h / 2)]
@@ -3080,32 +3409,32 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         #     f=self.settings["Speed"]["Slow speed"], 
         #     offset=self.settings["Offset"]["Tip one"]
         # )
-        # What is this man correction??
+        # What is this man correction?
 
         # self.anycubic.finish_request()
         # while not self.anycubic.get_finish_flag():
         #     continue
 
-        # Suck
 
+        # Suck up the tissue
         # move_servo(self, sign, idx)
         if print_all and debug == False: print("The current position of the pipette is: ", self.dynamixel.read_position(ID = 1))
         if print_all: print("The servo_pos : ", self.servo_pos[0])
         # if print_all: print("The pipette_1_pos : ", self.pipette_1_pos)
         
-
-        # self.pipette_1_pos -= self.settings["Tissues"]["Pumping Volume"]
-        # self.dynamixel.write_pipette_ul(self.pipette_1_pos, ID=1)
-
-        self.servo_pos[0] -= self.settings["Tissues"]["Pumping Volume"]
-        self.dynamixel.write_pipette_ul(self.servo_pos[0], ID=1)
-
         self.dynamixel.write_profile_velocity(self.settings["Tissues"]["Pumping speed"], ID=1)
        
         # For coherence with manual controls and display values:
         # self.servo_pos[0] = self.pipette_1_pos
         self.servo_values_text[0].set(str(self.settings["Tissues"]["Pumping speed"]))
         self.display_servo_pos()
+
+
+        # self.pipette_1_pos -= self.settings["Tissues"]["Pumping Volume"]
+        # self.dynamixel.write_pipette_ul(self.pipette_1_pos, ID=1)
+
+        self.servo_pos[0] -= self.settings["Tissues"]["Pumping Volume"]
+        self.dynamixel.write_pipette_ul(self.servo_pos[0], ID=1)
 
         while not self.dynamixel.pipette_is_in_position_ul(self.servo_pos[0], ID=1):
             if debug:
@@ -3142,32 +3471,15 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         if print_all: print("Sucked up the tissue")
 
-        # Check pickup
-        # self.anycubic.move_axis_relative(
-        #     z=self.settings["Position"]["Pick height"] + self.pick_offset, 
-        #     f=self.settings["Speed"]["Slow speed"], 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
-        # self.anycubic.move_axis_relative(
-        #     x=self.target_pos[0] + self.offset_check[0], 
-        #     y=self.target_pos[1] + self.offset_check[1], 
-        #     f=self.settings["Speed"]["Slow speed"], 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
-
-        # if debug:
-        #     self.frame = cam_gear.get_cam_frame(self.stream2)
-        # else:
-        #     self.frame = cam_gear.get_cam_frame(self.stream1)
-        # success, self.bbox = self.tracker.update(self.frame)
 
         # Go back to reasonable speed
-        self.anycubic.max_z_feedrate(15)
+        # self.anycubic.max_z_feedrate(15)
+        self.set_speed(self.settings["Speed"]["Medium speed"], self.settings["Speed"]["Medium speed"], self.settings["Speed"]["Medium speed"])
 
-        # What is this ????????
+        # What is this ?
         #self.move_xyz(x=self.target_pos[0] + self.offset_check[0], y=self.target_pos[1] + self.offset_check[1], z=self.settings["Position"]["Pick height"] + self.pick_offset)
 
-        # Instead this? :
+        # Instead this:
         self.move_xyz(z=self.settings["Position"]["Pick height"] + self.pick_offset + 10 - self.last_pos[2])  
 
         self.anycubic.finish_request()
@@ -3194,23 +3506,15 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             continue
         if print_all: print("Moved up a bit")
 
-
-        # if debug:
-        #     self.frame = cam_gear.get_cam_frame(self.stream2)
-        # else:
-        #     self.frame = cam_gear.get_cam_frame(self.stream1)
-        # success, self.bbox = self.tracker.update(self.frame)
-        # x, y, w, h = self.bbox
-        # target_px = [int(x + w / 2), int(y + h / 2)]
         self.tracker_pos = center
 
         if self.check_pickup():
             self.release_tracker()
 
             #self.take_picture()
-            # function needs to be adapted still
             self.pick_attempt += 1
             self.tissue_picked = True
+            self.tissue_placed = False
 
             if print_log: logger.info("Pickup successful after attempt " + str(self.pick_attempt))
             elif print_all: print("Pickup successful after attempt " + str(self.pick_attempt))
@@ -3233,9 +3537,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         if self.manual_mode:
             tm.sleep(2)
 
-        self.anycubic.max_x_feedrate(50)
-        self.anycubic.max_y_feedrate(50)
-        self.anycubic.max_z_feedrate(25)
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"])
 
         self.camera_feed_label.destroy()
         self.camera_feed_frame.destroy()
@@ -3274,14 +3576,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         if print_all: print("Place function started!")
         # Move to position
         dest = self.destination()
-       
-       # Move to safe height
-        # self.anycubic.move_axis_relative(
-        #     z=self.safe_height, 
-        #     f=self.settings["Speed"]["Fast speed"], 
-        #     offset=self.settings["Offset"]["Tip one"]
-        # )
-        self.move_xyz(z=self.safe_height) 
+
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"])
+
+        self.move_xyz(z= self.safe_height - self.last_pos[2]) 
 
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
@@ -3355,6 +3653,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             #     continue
         #elif self.pipette_1_pos < PIPETTE_MIN[0]:
         # elif self.pipette_1_pos >= 570 - self.settings["Tissues"]["Dropping volume"]:
+
         elif self.servo_pos[0] > 570 - self.settings["Tissues"]["Dropping volume"]:
             if print_all: print("There is not enough liquid in the pipette to drop the desired dropping volume!")
             if print_log: logger.info("There is not enough liquid in the pipette to drop the desired dropping volume!")
@@ -3409,49 +3708,54 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        # Post placement actions (reset sample count or move to next well)
-        if print_all: print("Post placement actions")
-        self.nb_sample += self.settings["Tissues"]["Number of samples per pick"] # Used to be just 1 but now, multiple tissues could be placed at once
-        if self.nb_sample >= self.settings["Tissues"]["Number of samples per well"]:
-            self.well_num += 1
-            self.nb_sample = 0
-            #if self.well_num >= len(self.culture_well):
-            if self.well_num >= self.settings["Well"]["Number of well"]:
-                if print_log: logger.info("All wells are completed.")
+        self.tissue_placed = True
 
-                self.message_box.delete('1.0', tk.END)
-                self.message_box.insert(tk.END, "All wells are completed.")
-                self.message_box.see(tk.END)
-                self.update_idletasks()
-
-                #self.reset()
-            else:
-                if print_log: logger.info("Moving to next well.")
-
-                self.message_box.delete('1.0', tk.END)
-                self.message_box.insert(tk.END, "Moving to next well.")
-                self.message_box.see(tk.END)
-                self.update_idletasks()
-
-                # self.reset()
-        else:
-            if print_log: logger.info("Ready for next sample.")
-
-            self.message_box.delete('1.0', tk.END)
-            self.message_box.insert(tk.END, "Ready for next sample.")
-            self.message_box.see(tk.END)
-            self.update_idletasks()
-
-            # self.reset() 
-        if print_all: print("Place function ended!") 
-
-        # Wait 2s
         if self.manual_mode:
+            # Post placement actions (reset sample count or move to next well)
+            if print_all: print("Post placement actions")
+            self.nb_sample += self.settings["Tissues"]["Number of samples per pick"] # Used to be just 1 but now, multiple tissues could be placed at once
+            if self.nb_sample >= self.settings["Tissues"]["Number of samples per well"]:
+                self.well_num += 1
+                self.nb_sample = 0
+                #if self.well_num >= len(self.culture_well):
+                if self.well_num >= self.settings["Well"]["Number of well"]:
+                    if print_log: logger.info("All wells are completed.")
+
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "All wells are completed.")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+
+                    #self.reset()
+                else:
+                    if print_log: logger.info("Moving to next well.")
+
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Moving to next well.")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+
+                    # self.reset()
+            else:
+                if print_log: logger.info("Ready for next sample.")
+
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Ready for next sample.")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+
+                # self.reset() 
+            if print_all: print("Place function ended!") 
+
+            # Wait 2s before erasing the message 
             tm.sleep(2)
 
         self.message_box.delete('1.0', tk.END)
         self.update_idletasks() 
 
+#################################################################################################################################
+#                                             An additional calibration process                                                 #
+#################################################################################################################################
 
     def tubecalibration(self):
 
@@ -3465,6 +3769,22 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             if print_all: print("You need to home the printer first")
             self.message_box.delete('1.0', tk.END)
             self.message_box.insert(tk.END, "You need to home the printer first")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+
+        if self.settings["Gel"]["Number of mixing tubes"] < 1:
+            if print_all: print("You need to set at least 1 Mixing tube")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "You need to set at least 1 Mixing tube")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
+        if self.settings["Gel"]["Number of mixing tubes"] > 6:
+            if print_all: print("You can't set more than 6 Mixing tubes")
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "You can't set more than 6 Mixing tubes")
             self.message_box.see(tk.END)
             self.update_idletasks()
             return
@@ -3482,23 +3802,49 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.bind('<Key>', self.on_key_press)
         self.key_pressed = None
 
-        for tube in ["Solution A", "Wash", "Solution B", "Mixing tubes"]:
+        all_tubes = ["Solution A", "Wash", "Solution B"]
+        for mixing_tube_nb in range(1, 1 + int(self.settings["Gel"]["Number of mixing tubes"])):
+            all_tubes.append("Mixing tube " + str(mixing_tube_nb))
 
-            self.move_xyz(z = self.safe_height - self.last_pos[2])
-            self.anycubic.finish_request()
-            while not self.anycubic.get_finish_flag():
-                continue
+        all_tubes.append("Well 1")
+        all_tubes.append("Well 2")
+
+        for tube in all_tubes:
+
+            if tube == "Well 2":
+                self.move_xyz(z = 35 - self.last_pos[2])
+                self.anycubic.finish_request()
+                while not self.anycubic.get_finish_flag():
+                    continue
+            else:
+                self.move_xyz(z = self.safe_height - self.last_pos[2])
+                self.anycubic.finish_request()
+                while not self.anycubic.get_finish_flag():
+                    continue
 
             self.move_xyz(x = self.settings["Positions"][tube][0] - self.last_pos[0], y = self.settings["Positions"][tube][1] - self.last_pos[1])
             self.anycubic.finish_request()
             while not self.anycubic.get_finish_flag():
                 continue
 
-            if print_all: print("Is this the x, y position of the " + tube + "?")
-            self.message_box.delete('1.0', tk.END)
-            self.message_box.insert(tk.END, "Is this the x, y position of the " + tube + "?")
-            self.message_box.see(tk.END)
-            self.update_idletasks()
+            if tube == "Well 1":
+                self.move_xyz(z = 35 - self.last_pos[2])
+                self.anycubic.finish_request()
+                while not self.anycubic.get_finish_flag():
+                    continue
+
+                if print_all: print("Is this the x, y position of the Well on the bottom left?")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Is this the x, y position of the Well on the bottom left?")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+
+            else:
+                if print_all: print("Is this the x, y position of the " + tube + "?")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Is this the x, y position of the " + tube + "?")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
 
             while True:
                 if self.key_pressed == 'Return':  # Enter key
@@ -3518,6 +3864,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.message_box.insert(tk.END, "Tube positions updated!")
         self.message_box.see(tk.END)
         self.update_idletasks()
+
+        self.current_mixing_tube = 1
 
 
     
@@ -3564,6 +3912,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             continue
 
         self.update_parameters()
+
+
+#################################################################################################################################
+#                                              Main processes related to the gel                                                #
+#################################################################################################################################
 
     def mix(self, volume, speed, repeats = 3):
 
@@ -3647,6 +4000,15 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
 
+        if self.current_mixing_tube > self.settings["Gel"]["Number of mixing tubes"]:
+            if print_log: logger.info("All mixing tubes are full! Run a tube calibration to reset the count!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "All mixing tubes are full! Run a tube calibration to reset the count!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+
         # Volumes that will be pumped:
         # - Solution A pumping volume
         # + Solution A pumping volume
@@ -3662,7 +4024,6 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # (Solution B pumping volume + Solution A purging volume) * Proportion of mixing volume
 
 
-
         # And during gel application:
         # - Gel: gel volume_per_well * len(selected_wells)
         # + Gel: gel volume_per_well * len(selected_wells)
@@ -3673,56 +4034,13 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Solution A purging volume
 
 
-
-        # Parameters we have:
-
-            #     "Solution A": {
-            #     "Solution A pumping speed": 60,
-            #     "Solution A dropping speed": 60,
-            #     "Solution A pumping volume": 100,
-            #     "Purging speed": 100,
-            #     "Purging volume": 600
-            # },
-            # "Solution B": {
-            #     "Solution B pumping speed": 30,
-            #     "Solution B dropping speed": 35,
-            #     "Solution B pumping volume": 400
-            # },
-            # "Gel": {
-            #     "Tube pumping height": 3.3,
-            #     "Vial pumping height": 4.299999999999999,
-            #     "Well plate pumping height": 5,
-            #     "Number of mix": 5,
-            #     "Proportion of mixing volume": 0.7,
-            #     "Number of wash": 2.0
-
-            #     "Positions": {
-            # "Solution A": [
-            #     63.0,
-            #     218.0,
-            #     8.0
-            # ],
-            # "Solution B": [
-            #     66,
-            #     119,
-            #     60
-            # ],
-            # "Wash": [
-            #     46,
-            #     119,
-            #     60
-            # ],
-            # "Mixing tubes": [
-            #     65.0,
-            #     140.0,
-            #     41.0
-            # ]
-
-
         # Select pipette 2
         self.tip_number = 2
         self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
         self.clicked_pipette.set(self.toolhead_position[self.tip_number])
+
+        # Set the speed to fast
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"])
 
         # Move to solution A
         self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
@@ -3735,7 +4053,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Solution A"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Solution A"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Vial pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
@@ -3762,12 +4081,13 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(x=self.settings["Positions"]["Mixing tubes"][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tubes"][1] - self.last_pos[1])
+        self.move_xyz(x=self.settings["Positions"]["Mixing tube " + str(self.current_mixing_tube)][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tube " + str(self.current_mixing_tube)][1] - self.last_pos[1])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Tube pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
@@ -3796,7 +4116,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Wash"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Wash"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Tube pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
@@ -3821,7 +4142,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Solution B"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Solution B"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Vial pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
@@ -3844,12 +4166,13 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(x=self.settings["Positions"]["Mixing tubes"][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tubes"][1] - self.last_pos[1])
+        self.move_xyz(x=self.settings["Positions"]["Mixing tube " + str(self.current_mixing_tube)][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tube " + str(self.current_mixing_tube)][1] - self.last_pos[1])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Tube pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
@@ -3866,6 +4189,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         # Mixing
         self.mix((self.settings["Solution B"]["Solution B pumping volume"] + self.settings["Solution A"]["Solution A pumping volume"]) * self.settings["Gel"]["Proportion of mixing volume"], self.settings["Solution A"]["Purging speed"], self.settings["Gel"]["Number of mix"])
 
+        self.start_stopwatch()
 
         # Go back to safe height
         self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
@@ -3877,6 +4201,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         print("Gel preparation done")
         self.gel_preparation = True
+        self.current_mixing_tube += 1
         return 
     
     def apply_gel(self):
@@ -3914,7 +4239,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return 
         
-        if self.gel_preparation == False:
+        if self.gel_preparation == False or self.current_mixing_tube < 2:
             if print_log: logger.info('🚫 Gel not prepared')
             self.message_box.delete('1.0', tk.END)
             self.message_box.insert(tk.END, "Gel not prepared")
@@ -3922,15 +4247,40 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
-
-        if self.servo_pos[1] < gel_volume_per_well * len(self.selected_wells):
-            if print_log: logger.info("The pipette can not pump that much; select less wells perhaps!")
-            
+        if self.well_nb_with_gel >= len(self.selected_wells):
+            if print_log: logger.info('🚫 Selected wells are full with gel')
             self.message_box.delete('1.0', tk.END)
-            self.message_box.insert(tk.END, "The pipette can not pump that much; select less wells perhaps!")
+            self.message_box.insert(tk.END, "Selected wells are full with gel")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return 
+        
+        if ((self.well_num == self.well_nb_with_gel) and (self.nb_sample != 0)) or (self.well_num > self.well_nb_with_gel):
+            if print_log: logger.info('🚫 A tissue placement was performed in the selected well, select new wells!')
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "A tissue placement was performed in the selected well, select new wells!")
             self.message_box.see(tk.END)
             self.update_idletasks()
             return
+                
+        if self.servo_pos[1] < gel_volume_per_well:
+            if print_log: logger.info("The pipette can not pump that much gel!")
+            
+            self.message_box.delete('1.0', tk.END)
+            self.message_box.insert(tk.END, "The pipette can not pump that much gel!")
+            self.message_box.see(tk.END)
+            self.update_idletasks()
+            return
+        
+
+        # if self.servo_pos[1] < gel_volume_per_well * len(self.selected_wells):
+        #     if print_log: logger.info("The pipette can not pump that much; select less wells perhaps!")
+            
+        #     self.message_box.delete('1.0', tk.END)
+        #     self.message_box.insert(tk.END, "The pipette can not pump that much; select less wells perhaps!")
+        #     self.message_box.see(tk.END)
+        #     self.update_idletasks()
+        #     return
         
         if self.servo_pos[1] < self.settings["Solution A"]["Purging volume"]:
             if print_log: logger.info("The pipette can not take the set Purging volume!")
@@ -3941,19 +4291,22 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.update_idletasks()
             return
         
-        if self.nb_sample != 0 or self.well_num != 0:
-            if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+        # if self.nb_sample != 0 or self.well_num != 0:
+        #     if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
             
-            self.message_box.delete('1.0', tk.END)
-            self.message_box.insert(tk.END, "It seems like a tissue placement was performed in one of the selected wells, select new wells!")
-            self.message_box.see(tk.END)
-            self.update_idletasks()
-            return
+        #     self.message_box.delete('1.0', tk.END)
+        #     self.message_box.insert(tk.END, "It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+        #     self.message_box.see(tk.END)
+        #     self.update_idletasks()
+        #     return
         
         # Select pipette 2
         self.tip_number = 2
         self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
         self.clicked_pipette.set(self.toolhead_position[self.tip_number])
+
+        # Set the speed to fast
+        self.set_speed(self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Fast speed"], self.settings["Speed"]["Medium speed"])
 
         # Take gel from the mixing tube (right amount):
         # Move to the Mixing tube
@@ -3962,27 +4315,91 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(x=self.settings["Positions"]["Mixing tubes"][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tubes"][1] - self.last_pos[1])
+        self.move_xyz(x=self.settings["Positions"]["Mixing tube " + str(self.current_mixing_tube - 1)][0] - self.last_pos[0], y=self.settings["Positions"]["Mixing tube " + str(self.current_mixing_tube - 1)][1] - self.last_pos[1])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Mixing tubes"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Tube pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
 
         # Pump the gel
         self.dynamixel.write_profile_velocity(gel_pumping_speed, ID=2)
-        self.servo_pos[1] -= gel_volume_per_well * len(self.selected_wells)
+        # self.servo_pos[1] -= gel_volume_per_well * len(self.selected_wells)
+        self.servo_pos[1] -= gel_volume_per_well
         self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
 
         if debug == False:
             while self.dynamixel.read_pos_in_ul(ID = 2)[0] > self.servo_pos[1]:
                 continue
+        
+        ############################################### OBSOLETE BECAUSE 1 GEL PER WELL
 
-        # Move to the first selected well (bc safety height here is higher than above the well plate)
+        # # Move to the first selected well (bc safety height here is higher than above the well plate)
+        # dest = self.destination()
+        # # Move to well
+        # self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
+        # self.anycubic.finish_request()
+        # while not self.anycubic.get_finish_flag():
+        #     continue
+
+        # self.move_xyz(x=dest[0] - self.last_pos[0], y=dest[1] - self.last_pos[1])
+        # self.anycubic.finish_request()
+        # while not self.anycubic.get_finish_flag():
+        #     continue
+
+        # # Place it in all selected wells
+        # for well in self.selected_wells:
+                
+        #         dest = self.destination()
+        #         self.well_num += 1
+        #         # Move to well
+        #         self.move_xyz(z=self.safe_height - self.last_pos[2])
+        #         self.anycubic.finish_request()
+        #         while not self.anycubic.get_finish_flag():
+        #             continue
+    
+        #         self.move_xyz(x=dest[0] - self.last_pos[0], y=dest[1] - self.last_pos[1])
+        #         self.anycubic.finish_request()
+        #         while not self.anycubic.get_finish_flag():
+        #             continue
+    
+        #         self.move_xyz(z=self.settings["Gel"]["Well plate pumping height"] - self.last_pos[2])
+        #         self.anycubic.finish_request()
+        #         while not self.anycubic.get_finish_flag():
+        #             continue
+    
+        #         # Drop the gel
+        #         self.dynamixel.write_profile_velocity(gel_dropping_speed, ID=2)
+        #         self.servo_pos[1] += gel_volume_per_well
+        #         self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
+    
+        #         if debug == False:
+        #             while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+        #                 continue
+
+        # self.well_num = 0
+
+        # ###############################################
+
+        # Quick manoever around having to modify the dest function
+
+        backup_well_num = self.well_num
+        backup_nb_sample = self.nb_sample
+
+        self.well_num = self.well_nb_with_gel
+        self.nb_sample = 0
+
         dest = self.destination()
+
+        self.well_num = backup_well_num
+        self.nb_sample = backup_nb_sample
+
+        ################################################
+
         # Move to well
         self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
         self.anycubic.finish_request()
@@ -3993,38 +4410,23 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
+    
+        self.move_xyz(z=self.settings["Gel"]["Well plate pumping height"] - self.last_pos[2])
+        self.anycubic.finish_request()
+        while not self.anycubic.get_finish_flag():
+            continue
 
-        # Place it in all selected wells
-        for well in self.selected_wells:
-                
-                dest = self.destination()
-                self.well_num += 1
-                # Move to well
-                self.move_xyz(z=self.safe_height - self.last_pos[2])
-                self.anycubic.finish_request()
-                while not self.anycubic.get_finish_flag():
-                    continue
-    
-                self.move_xyz(x=dest[0] - self.last_pos[0], y=dest[1] - self.last_pos[1])
-                self.anycubic.finish_request()
-                while not self.anycubic.get_finish_flag():
-                    continue
-    
-                self.move_xyz(z=self.settings["Gel"]["Well plate pumping height"] - self.last_pos[2])
-                self.anycubic.finish_request()
-                while not self.anycubic.get_finish_flag():
-                    continue
-    
-                # Drop the gel
-                self.dynamixel.write_profile_velocity(gel_dropping_speed, ID=2)
-                self.servo_pos[1] += gel_volume_per_well
-                self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
-    
-                if debug == False:
-                    while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
-                        continue
+        # Drop the gel
+        self.dynamixel.write_profile_velocity(gel_dropping_speed, ID=2)
+        self.servo_pos[1] += gel_volume_per_well
+        self.dynamixel.write_pipette_ul(self.servo_pos[1], ID=2)
 
-        self.well_num = 0
+        if debug == False:
+            while self.dynamixel.read_pos_in_ul(ID = 2)[0] < self.servo_pos[1]:
+                continue
+
+
+        ###############################################
 
         # Rinse pipette
         self.move_xyz(z=self.safe_height + 15 - self.last_pos[2])
@@ -4037,7 +4439,8 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         while not self.anycubic.get_finish_flag():
             continue
 
-        self.move_xyz(z=self.settings["Positions"]["Wash"][2] - self.last_pos[2])
+        # self.move_xyz(z=self.settings["Positions"]["Wash"][2] - self.last_pos[2])
+        self.move_xyz(z=self.settings["Gel"]["Tube pumping height"] - self.last_pos[2])
         self.anycubic.finish_request()
         while not self.anycubic.get_finish_flag():
             continue
@@ -4059,8 +4462,123 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         # Now the same gel is not usuable again, so we reset the gel preparation flag
         self.gel_preparation = False
+        self.well_nb_with_gel += 1
 
         return 
+    
+#################################################################################################################################
+#                                                 High order process functions                                                  #
+#################################################################################################################################
+    
+    def placing_loop(self):
+
+        self.placing_attempts = 1
+
+        if print_log: logger.info("Do you want to try placing again?")
+        self.message_box.delete('1.0', tk.END)
+        self.message_box.insert(tk.END, "Do you want to try placing again?")
+        self.message_box.see(tk.END)
+        self.update_idletasks()
+            
+        continue_placing = True
+
+        if self.auto_check:
+            if self.placing_attempts >= self.settings["Detection"]["Max place attempts"]:
+                continue_placing = False
+            else:
+                self.placing_attempts += 1
+        else:    
+            self.bind('<Key>', self.on_key_press)
+            self.key_pressed = None
+
+            while True:
+                if self.key_pressed == 'Return':
+                    self.key_pressed = None
+                    break
+                elif self.key_pressed == 'BackSpace':
+                    self.key_pressed = None
+                    continue_placing = False
+                    break
+                self.update_idletasks()
+                self.update()
+        
+        if not continue_placing:
+            return
+
+        while True:
+            self.place()
+            if (not cam_check) or self.take_picture():
+                # Post placement actions (reset sample count or move to next well)
+                if print_all: print("Post placement actions")
+                self.nb_sample += self.settings["Tissues"]["Number of samples per pick"] # Used to be just 1 but now, multiple tissues could be placed at once
+                if self.nb_sample >= self.settings["Tissues"]["Number of samples per well"]:
+                    self.well_num += 1
+                    self.nb_sample = 0
+                    #if self.well_num >= len(self.culture_well):
+                    if self.well_num >= self.settings["Well"]["Number of well"]:
+                        if print_log: logger.info("All wells are completed.")
+
+                        self.message_box.delete('1.0', tk.END)
+                        self.message_box.insert(tk.END, "All wells are completed.")
+                        self.message_box.see(tk.END)
+                        self.update_idletasks()
+
+                        #self.reset()
+                    else:
+                        if print_log: logger.info("Moving to next well.")
+
+                        self.message_box.delete('1.0', tk.END)
+                        self.message_box.insert(tk.END, "Moving to next well.")
+                        self.message_box.see(tk.END)
+                        self.update_idletasks()
+
+                        # self.reset()
+                else:
+                    if print_log: logger.info("Ready for next sample.")
+
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Ready for next sample.")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+
+                self.message_box.delete('1.0', tk.END)
+                self.update_idletasks() 
+
+                self.reset()
+                self.placing_complete = True
+                break
+
+            else:
+                continue_placing = True
+
+                if self.auto_check:
+                    if self.placing_attempts >= self.settings["Detection"]["Max place attempts"]:
+                        continue_placing = False
+                    else:
+                        self.placing_attempts += 1
+                else:
+                    if print_log: logger.info("Do you want to try placing again?")
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Do you want to try placing again?")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+
+                    self.bind('<Key>', self.on_key_press)
+                    self.key_pressed = None
+
+                    while True:
+                        if self.key_pressed == 'Return':
+                            self.key_pressed = None
+                            break
+                        elif self.key_pressed == 'BackSpace':
+                            self.key_pressed = None
+                            continue_placing = False
+                            break
+                        self.update_idletasks()
+                        self.update()
+                
+                if not continue_placing:
+                    break
 
     def pick_and_place(self):
 
@@ -4121,6 +4639,12 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.tissue_picked_nb = 0
         self.placing_complete = False
 
+        # Select the pipette 1
+        self.tip_number = 1
+        self.dynamixel.select_tip(tip_number=self.tip_number, ID=3)
+        self.clicked_pipette.set(self.toolhead_position[self.tip_number])
+
+
         while self.placing_complete == False:
             if self.key_pressed == 'BackSpace':
                 self.key_pressed = None
@@ -4139,7 +4663,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             # self.move_xyz(y=1)
             # self.move_xyz(y=-1)
             # self.move_xyz(y=1)
-            # self.move_xyz(y=-1)
+            # self.move_xyz(y=-1
 
             if print_all: print("Detecting tissue")
 
@@ -4166,7 +4690,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                         self.message_box.see(tk.END)
                         self.update_idletasks()
 
-                    elif self.take_picture():
+                    elif (not cam_check) or self.take_picture():
                         if self.key_pressed == 'BackSpace':
                             self.key_pressed = None
                             # self.reset()
@@ -4176,7 +4700,45 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                             self.key_pressed = None
                             # self.reset()
                             break
-                        if self.take_picture():
+                        if (not cam_check) or self.take_picture():
+                            
+                            # Post placement actions (reset sample count or move to next well)
+                            if print_all: print("Post placement actions")
+                            self.nb_sample += self.settings["Tissues"]["Number of samples per pick"] # Used to be just 1 but now, multiple tissues could be placed at once
+                            if self.nb_sample >= self.settings["Tissues"]["Number of samples per well"]:
+                                self.well_num += 1
+                                self.nb_sample = 0
+                                #if self.well_num >= len(self.culture_well):
+                                if self.well_num >= self.settings["Well"]["Number of well"]:
+                                    if print_log: logger.info("All wells are completed.")
+
+                                    self.message_box.delete('1.0', tk.END)
+                                    self.message_box.insert(tk.END, "All wells are completed.")
+                                    self.message_box.see(tk.END)
+                                    self.update_idletasks()
+
+                                    #self.reset()
+                                else:
+                                    if print_log: logger.info("Moving to next well.")
+
+                                    self.message_box.delete('1.0', tk.END)
+                                    self.message_box.insert(tk.END, "Moving to next well.")
+                                    self.message_box.see(tk.END)
+                                    self.update_idletasks()
+
+                                    # self.reset()
+                            else:
+                                if print_log: logger.info("Ready for next sample.")
+
+                                self.message_box.delete('1.0', tk.END)
+                                self.message_box.insert(tk.END, "Ready for next sample.")
+                                self.message_box.see(tk.END)
+                                self.update_idletasks()
+
+                            self.message_box.delete('1.0', tk.END)
+                            self.update_idletasks() 
+
+
                             if self.key_pressed == 'BackSpace':
                                 self.key_pressed = None
                                 # self.reset()
@@ -4189,6 +4751,10 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                                 self.key_pressed = None
                                 # self.reset()
                                 break
+
+                            # print("What should be done here? Try placing again? Multiple tries? Reset? TBD")
+                                
+                            self.placing_loop()
                             # self.reset()
                             # self.release_tracker()
                             # self.tissue_detected = False
@@ -4282,7 +4848,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         # In case gel preparation is part of the full process
         gel_volume_per_well = self.settings["Gel"]["Gel volume per well"]
-
+        # global gel_prep
         if self.settings["Tissues"]["Number of samples per pick"] <= 1 and gel_prep:
             
             if self.servo_pos[1] < self.settings["Solution A"]["Solution A pumping volume"] or self.servo_pos[1] < self.settings["Solution B"]["Solution B pumping volume"]:
@@ -4312,20 +4878,79 @@ in which you can select UP TO 6 wells to use. You can then press the save button
                 self.update_idletasks()
                 return
 
-            if self.servo_pos[1] < gel_volume_per_well * len(self.selected_wells):
-                if print_log: logger.info("The pipette can not pump that much; select less wells perhaps!")
+            if self.settings["Gel"]["Number of mixing tubes"] - self.current_mixing_tube < self.settings["Well"]["Number of well"] - self.well_num - 1:
+                if print_log: logger.info("Not enough mixing tubes left for the selected wells!")
                 
                 self.message_box.delete('1.0', tk.END)
-                self.message_box.insert(tk.END, "The pipette can not pump that much; select less wells perhaps!")
+                self.message_box.insert(tk.END, "Not enough mixing tubes left for the selected wells!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+
+            # if self.servo_pos[1] < gel_volume_per_well * len(self.selected_wells):
+            #     if print_log: logger.info("The pipette can not pump that much; select less wells perhaps!")
+                
+            #     self.message_box.delete('1.0', tk.END)
+            #     self.message_box.insert(tk.END, "The pipette can not pump that much; select less wells perhaps!")
+            #     self.message_box.see(tk.END)
+            #     self.update_idletasks()
+            #     return
+            
+            # if self.nb_sample != 0 or self.well_num != 0:
+            #     if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+                
+            #     self.message_box.delete('1.0', tk.END)
+            #     self.message_box.insert(tk.END, "It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+            #     self.message_box.see(tk.END)
+            #     self.update_idletasks()
+            #     return
+
+            if self.settings["Gel"]["Number of mixing tubes"] < 1:
+                if print_all: print("You need to set at least 1 Mixing tube")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "You need to set at least 1 Mixing tube")
                 self.message_box.see(tk.END)
                 self.update_idletasks()
                 return
             
-            if self.nb_sample != 0 or self.well_num != 0:
-                if print_log: logger.info("It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+            if self.settings["Gel"]["Number of mixing tubes"] > 6:
+                if print_all: print("You can't set more than 6 Mixing tubes")
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "You can't set more than 6 Mixing tubes")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+            
+            if self.current_mixing_tube > self.settings["Gel"]["Number of mixing tubes"]:
+                if print_log: logger.info("All mixing tubes are full! Run a tube calibration to reset the count!")
                 
                 self.message_box.delete('1.0', tk.END)
-                self.message_box.insert(tk.END, "It seems like a tissue placement was performed in one of the selected wells, select new wells!")
+                self.message_box.insert(tk.END, "All mixing tubes are full! Run a tube calibration to reset the count!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+            
+            if self.well_nb_with_gel >= len(self.selected_wells):
+                if print_log: logger.info('🚫 Selected wells are full with gel')
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "Selected wells are full with gel")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return 
+            
+            if ((self.well_num == self.well_nb_with_gel) and (self.nb_sample != 0)) or (self.well_num > self.well_nb_with_gel):
+                if print_log: logger.info('🚫 A tissue placement was performed in the selected well, select new wells!')
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "A tissue placement was performed in the selected well, select new wells!")
+                self.message_box.see(tk.END)
+                self.update_idletasks()
+                return
+
+            if self.servo_pos[1] < gel_volume_per_well:
+                if print_log: logger.info("The pipette can not pump that much gel!")
+                
+                self.message_box.delete('1.0', tk.END)
+                self.message_box.insert(tk.END, "The pipette can not pump that much gel!")
                 self.message_box.see(tk.END)
                 self.update_idletasks()
                 return
@@ -4335,6 +4960,7 @@ in which you can select UP TO 6 wells to use. You can then press the save button
         self.bind('<Key>', self.on_key_press)
         self.key_pressed = None
 
+        # global gel_prep
         if self.settings["Tissues"]["Number of samples per pick"] <= 1 and gel_prep:
             
             self.prepare_gel()
@@ -4361,6 +4987,30 @@ in which you can select UP TO 6 wells to use. You can then press the save button
 
         # while self.well_num < self.settings["Well"]["Number of well"]:
         while self.well_num < len(self.selected_wells):
+            # global gel_prep
+            if (self.well_num >= self.well_nb_with_gel) and gel_prep and (self.settings["Tissues"]["Number of samples per pick"] <= 1):
+                
+                self.prepare_gel()
+
+                if self.key_pressed == 'BackSpace':
+                    self.key_pressed = None
+                    if print_log: logger.info("Run all interrupted!")
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Run all interrupted!")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+                    return
+
+                self.apply_gel()
+
+                if self.key_pressed == 'BackSpace':
+                    self.key_pressed = None
+                    if print_log: logger.info("Run all interrupted!")
+                    self.message_box.delete('1.0', tk.END)
+                    self.message_box.insert(tk.END, "Run all interrupted!")
+                    self.message_box.see(tk.END)
+                    self.update_idletasks()
+                    return
             
             self.pick_and_place()
 
@@ -4387,6 +5037,11 @@ in which you can select UP TO 6 wells to use. You can then press the save button
             self.message_box.insert(tk.END, "Run all is completed! Total number of samples placed: " + str(self.well_num * self.settings["Tissues"]["Number of samples per well"] + self.nb_sample))
             self.message_box.see(tk.END)
             self.update_idletasks()
+
+
+#################################################################################################################################
+#                                                      Main and first function                                                  #
+#################################################################################################################################
 
 
     def first_function(self):
