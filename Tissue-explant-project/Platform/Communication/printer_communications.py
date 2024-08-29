@@ -2,6 +2,7 @@ import serial
 from threading import Thread
 from time import time, sleep
 import sys
+# import main_gui
 
 class Printer:
     def __init__(self, descriptive_device_name, port_name, baudrate):
@@ -42,7 +43,8 @@ class Printer:
             print("Successfully connected to " + self.descriptive_device_name)
         except:
             print("!! Cannot connect to " + self.descriptive_device_name + " !!")
-            sys.exit()
+            # sys.exit()
+            return False
 
         self._start_Reading_Thread()
 
@@ -55,7 +57,16 @@ class Printer:
 
             if time() - timer > timeout:
                 print("!! " +  self.descriptive_device_name + " init failed !!")
-                sys.exit()
+                # sys.exit()
+                return False
+
+                # print("Starting in Offline Mode")
+                # print("The debug variable was", main_gui.debug)
+                # main_gui.debug = True
+                # print("The debug variable is set to", main_gui.debug)
+                # break
+
+        return True
 
     def disconnect(self):
         try: 

@@ -436,7 +436,7 @@ def detection(self):
         os.makedirs(macro_dir)
     
     _, _, files = next(os.walk(macro_dir))
-    file_count = len(files)
+    file_count = int(len(files)/3)
     cv2.imwrite("Pictures/detection/" + str(file_count) + "_image.png", out)
     
 
@@ -501,7 +501,7 @@ def detection(self):
     # cv2.imwrite(r"Pictures/detection/mask.png", self.mask)
     # cv2.imwrite(r"Pictures/detection/image_full_detection.png", out)
 
-    cv2.imwrite("Pictures/detection/" + str(file_count) + "_image_full_detection.png", out)
+    cv2.imwrite("Pictures/detection/" + str(file_count) + "_detection.png", out)
     ########################################
        
     out = d_number(out, keypoints, YELLOW)
@@ -513,7 +513,8 @@ def detection(self):
     id_target = smallest_distances.index(max(smallest_distances))
 
     while np.random.rand() < 0.5 and len(smallest_distances) > 2:
-        print("Let us randomly remove the target picked first")
+        # print("Let us randomly remove the target picked first")
+        print("Random target removal")
         smallest_distances.pop(id_target)
         id_target = smallest_distances.index(max(smallest_distances))
 
@@ -539,7 +540,7 @@ def detection(self):
     out = d_circle(out, [keypoints[id_target]], 5, GREEN)
         
     # cv2.imwrite(r"Pictures/detection/image_detection.png", out)
-    cv2.imwrite("Pictures/detection/" + str(file_count) + "_image_detection.png", out)
+    cv2.imwrite("Pictures/detection/" + str(file_count) + "_numbered_detection.png", out)
 
     return [keypoints[id_target].pt[0], keypoints[id_target].pt[1]], optimal_angle
         

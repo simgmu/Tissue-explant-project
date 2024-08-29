@@ -1,0 +1,163 @@
+{
+    "Position": {
+        "Pick height": 6.0,
+        "Drop height": 11.1
+    },
+    "Speed": {
+        "Slow speed": 1.0,
+        "Medium speed": 8,
+        "Fast speed": 50.0
+    },
+    "Tissues": {
+        "Pumping Volume": 100.0,
+        "Pumping speed": 5.0,
+        "Dropping volume": 50.0,
+        "Dropping speed": 151,
+        "Number of samples per well": 1.0,
+        "Number of samples per pick": 1.0
+    },
+    "Solution A": {
+        "Solution A pumping speed": 60,
+        "Solution A dropping speed": 60,
+        "Solution A pumping volume": 100.0,
+        "Purging speed": 100,
+        "Purging volume": 320.0
+    },
+    "Solution B": {
+        "Solution B pumping speed": 100.0,
+        "Solution B dropping speed": 10.0,
+        "Solution B pumping volume": 300.0
+    },
+    "Gel": {
+        "Tube pumping height": 10,
+        "Vial pumping height": 10,
+        "Well plate pumping height": 11.1,
+        "Number of mixing tubes": 2.0,
+        "Number of mix": 5,
+        "Proportion of mixing volume": 0.7,
+        "Number of wash": 2.0,
+        "Gel volume per well": 50.0,
+        "Gel pumping speed": 15.0,
+        "Gel dropping speed": 15.0
+    },
+    "Detection": {
+        "Max attempts": 20,
+        "Max place attempts": 4,
+        "Size min": 50.0,
+        "Size max": 200.0,
+        "Circularity min": 0.0,
+        "Convexity min": 0.0,
+        "Inertia min": 0.0
+    },
+    "Well": {
+        "Well preparation": true,
+        "Type": "TPP12",
+        "Number of well": 3,
+        "Culture 1": "B3",
+        "Culture 2": "A2",
+        "Culture 3": "A4",
+        "Culture 4": "A2",
+        "Culture 5": "C3",
+        "Culture 6": "C1"
+    },
+    "Offset": {
+        "None": [
+            0,
+            0,
+            0
+        ],
+        "Calibration point": [
+            119.0,
+            78.0,
+            5.0
+        ],
+        "Tip one": [
+            -3.000000000000001,
+            1.6999999999999997,
+            0.9
+        ],
+        "Tip two": [
+            -3.0000000000000013,
+            -0.7000000000000006,
+            1.0
+        ],
+        "Camera": [
+            10.499999999999979,
+            -22.300000000000047,
+            26.600000000000108
+        ],
+        "Fixed Camera": [
+            -2.2,
+            -4.100000000000003,
+            25.200000000000074
+        ],
+        "Fixed Camera 2": [
+            -2.3000000000000007,
+            -11.599999999999977,
+            25.200000000000074
+        ],
+        "Tip pixel position": [
+            186,
+            406,
+            0
+        ]
+    },
+    "Positions": {
+        "Solution A": [
+            62.0,
+            197.0,
+            10.0
+        ],
+        "Solution B": [
+            101.0,
+            196.0,
+            10.0
+        ],
+        "Wash": [
+            82.0,
+            196.0,
+            10.0
+        ],
+        "Mixing tube 1": [
+            40.0,
+            217.0,
+            10.0
+        ],
+        "Mixing tube 2": [
+            54.3,
+            218.0,
+            10.0
+        ],
+        "Mixing tube 3": [
+            68.6,
+            217.0,
+            10.0
+        ],
+        "Mixing tube 4": [
+            81.9,
+            217.0,
+            10.0
+        ],
+        "Mixing tube 5": [
+            96.2,
+            217.0,
+            10.0
+        ],
+        "Mixing tube 6": [
+            110.5,
+            217.0,
+            10.0
+        ],
+        "Well 1": [
+            139,
+            114.0,
+            10.0
+        ],
+        "Well 2": [
+            164,
+            114.0,
+            10.0
+        ]
+    },
+    "Saved Positions": {}
+}
