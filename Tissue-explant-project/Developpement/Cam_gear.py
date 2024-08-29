@@ -40,9 +40,18 @@ class camThread(threading.Thread):
         cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         if cam.isOpened():  # try to get the first frame
             rval, self.frame = cam.read()
+            print("Camera is ready: rval = ", rval)
         else:
             rval = False
             print("Error getting frame for ", self.previewName)
+        
+        while not rval:
+            cam = cv2.VideoCapture(self.camID, cv2.CAP_DSHOW)
+            cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            rval, self.frame = cam.read()
+            print("Trying to get frame for ", self.previewName)
+            time.sleep(1)
 
         while rval:
             self.windowManagement()
